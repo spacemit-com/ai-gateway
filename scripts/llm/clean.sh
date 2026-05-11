@@ -54,7 +54,7 @@ kill_llama() {
     return
   fi
   echo "$pids" | xargs kill -9
-  echo "已杀掉所有 llama-server 进程: $(echo $pids | tr '\n' ' ')"
+  echo "已杀掉所有 llama-server 进程: $(echo "$pids" | tr '\n' ' ')"
 }
 
 case "${1:-}" in

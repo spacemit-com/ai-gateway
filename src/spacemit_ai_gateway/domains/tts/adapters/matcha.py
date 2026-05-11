@@ -252,6 +252,8 @@ def _set_model_dir(engine_config, model_dir) -> None:
     if hasattr(engine_config, "model_dir"):
         engine_config.model_dir = model_dir_text
         return
+    # Older spacemit_tts builds keep the native config behind this private wrapper.
+    # Prefer the public model_dir attribute above and keep this fallback for compatibility.
     native_config = getattr(engine_config, "_config", None)
     if native_config is not None and hasattr(native_config, "model_dir"):
         native_config.model_dir = model_dir_text

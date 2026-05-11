@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import tarfile
 import sys
+import tarfile
+from pathlib import Path
 
 from spacemit_ai_gateway.app.settings import AsrConfig, TtsConfig
 from spacemit_ai_gateway.common.model_download import (
@@ -89,3 +90,21 @@ def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
     assert calls[0][0] == "matcha_zh_en"
     assert calls[0][1] == tmp_path / "tts" / "matcha-tts"
     assert backend.state == BackendReadyState.DEGRADED
+
+
+def test_vision_label_path_materializes_package_resource(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.vision import models
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    source_config = tmp_path / "yolov8.yaml"
+    source_config.write_text(
+        "label_file_path: spacemit_ai_gateway/domains/vision/assets/labels/coco.txt\n",
+        encoding="utf-8",
+    )
+
+    runtime_config = Path(models._materialize_config_for_runtime(str(source_config)))
+
+    assert runtime_config != source_config
+    assert runtime_config.exists()
+    assert str(tmp_path / "cache") in str(runtime_config)
+    assert str(models._package_root()) in runtime_config.read_text(encoding="utf-8")
