@@ -1,0 +1,68 @@
+#!/bin/sh
+set -e
+
+VENV_DIR=/opt/spacemit-ai-gateway/venv
+PYPI_INDEX=https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple
+PYPI_EXTRA=https://mirrors.aliyun.com/pypi/simple/
+
+case "$1" in
+    configure)
+        mkdir -p /opt/spacemit-ai-gateway
+        if [ ! -x "$VENV_DIR/bin/python" ]; then
+            echo "==> Creating venv at $VENV_DIR"
+            python3 -m venv "$VENV_DIR"
+        fi
+        echo "==> Upgrading pip in venv"
+        "$VENV_DIR/bin/python" -m pip install -U pip
+
+        echo "==> Installing SpacemiT model_zoo wheels (this may take a few minutes)..."
+        "$VENV_DIR/bin/python" -m pip install \
+            --index-url "$PYPI_INDEX" \
+            spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision
+
+        echo "==> Installing spacemit-ai-gateway..."
+        "$VENV_DIR/bin/python" -m pip install spacemit-ai-gateway \
+            --prefer-binary \
+            --index-url "$PYPI_INDEX" \
+            --extra-index-url "$PYPI_EXTRA"
+
+        # ---- 让 venv 多用户可读 ----
+        chmod -R a+rX /opt/spacemit-ai-gateway/venv
+
+        # ---- 安装者身份继承：用 sudo 调用者作为 service 运行用户 ----
+        TARGET_USER="${SUDO_USER:-}"
+        if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
+            TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+            TARGET_GROUP="$(id -gn "$TARGET_USER" 2>/dev/null || true)"
+            if [ -n "$TARGET_HOME" ] && [ -n "$TARGET_GROUP" ]; then
+                echo "==> Configuring services to run as $TARGET_USER (HOME=$TARGET_HOME)"
+                for svc in spacemit-ai-gateway spacemit-ai-gateway-frontend; do
+                    install -d -m 0755 "/etc/systemd/system/${svc}.service.d"
+                    cat > "/etc/systemd/system/${svc}.service.d/runtime-user.conf" <<DROPIN
+[Service]
+User=$TARGET_USER
+Group=$TARGET_GROUP
+Environment=HOME=$TARGET_HOME
+UMask=0022
+DROPIN
+                done
+                systemctl daemon-reload
+            else
+                echo "==> WARNING: cannot resolve home/group for SUDO_USER=$TARGET_USER; services will run as root" >&2
+            fi
+        else
+            echo "==> Installed as root. Services will run as root." >&2
+            echo "==> To make services follow a normal user, log in as that user and re-install via 'sudo apt install ./spacemit-ai-gateway_*.deb'." >&2
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

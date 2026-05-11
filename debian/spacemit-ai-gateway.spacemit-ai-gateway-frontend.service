@@ -1,0 +1,14 @@
+[Unit]
+Description=SpacemiT AI Gateway Frontend (static console on :8326)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/spacemit-ai-gateway/frontend
+ExecStart=/usr/bin/python3 -m http.server 8326 --bind 0.0.0.0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

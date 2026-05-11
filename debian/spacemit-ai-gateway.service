@@ -1,0 +1,15 @@
+[Unit]
+Description=SpacemiT AI Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=PATH=/opt/spacemit-ai-gateway/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/spacemit-ai-gateway/venv/bin/spacemit-ai-gateway
+WorkingDirectory=/opt/spacemit-ai-gateway
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,80 @@
+"""LlmBackendImpl — 管理 llama-server 进程和 remote 转发，不碰 DB。"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from ....app.settings import LlmConfig
+from .base import LlmBackend
+from .llama import LlamaAdapter
+from .remote import RemoteAdapter
+
+logger = logging.getLogger(__name__)
+
+
+class LlmBackendImpl(LlmBackend):
+    backend_name = "llm"
+
+    def __init__(self, config: LlmConfig):
+        self._config = config
+        self._adapters: dict[str, LlamaAdapter] = {}
+        self._remote_adapters: dict[str, RemoteAdapter] = {}
+
+    # ── 进程管理 ──────────────────────────────────────────────────────────────
+
+    async def start_model(self, model_id: str, model_path: Path, extra_args: list[str]) -> None:
+        """启动 llama-server，健康检查通过后注册 adapter。"""
+        adapter = LlamaAdapter(host=self._config.host, default_args=self._config.default_args)
+        adapter.start(model_path, extra_args=extra_args)
+        ready = await adapter.health_check(timeout=120)
+        if not ready:
+            adapter.stop()
+            raise RuntimeError(f"llama-server failed to start for model '{model_id}'")
+        self._adapters[model_id] = adapter
+
+    async def stop_model(self, model_id: str) -> None:
+        adapter = self._adapters.pop(model_id, None)
+        if adapter:
+            adapter.stop()
+
+    def is_model_running(self, model_id: str) -> bool:
+        adapter = self._adapters.get(model_id)
+        return adapter is not None and adapter.is_running()
+
+    def get_adapter(self, model_id: str) -> LlamaAdapter | None:
+        return self._adapters.get(model_id)
+
+    def register_remote(self, model_id: str, api_base_url: str, api_key: str = "") -> None:
+        self._remote_adapters[model_id] = RemoteAdapter(api_base_url, api_key)
+
+    def unregister_remote(self, model_id: str) -> None:
+        self._remote_adapters.pop(model_id, None)
+
+    # ── 代理 ─────────────────────────────────────────────────────────────────
+
+    async def proxy(self, path: str, request_body: bytes, headers: dict, stream: bool = False):
+        raise NotImplementedError("Use proxy_for(model_id) instead")
+
+    async def proxy_for(self, model_id: str, source_type: str,
+                        path: str, request_body: bytes, headers: dict, stream: bool = False):
+        if source_type == "remote":
+            remote = self._remote_adapters.get(model_id)
+            if not remote:
+                raise RuntimeError(f"No remote adapter for model '{model_id}'")
+            return await remote.proxy(path, request_body, headers, stream)
+        adapter = self._adapters.get(model_id)
+        if not adapter:
+            raise RuntimeError(f"Model '{model_id}' is not loaded")
+        return await adapter.proxy(path, request_body, headers, stream)
+
+    # ── 生命周期 ──────────────────────────────────────────────────────────────
+
+    async def warmup(self) -> None:
+        pass  # service 层负责 warmup 当前活跃 adapter
+
+    async def shutdown(self) -> None:
+        for adapter in self._adapters.values():
+            adapter.stop()
+        self._adapters.clear()
+        self._remote_adapters.clear()

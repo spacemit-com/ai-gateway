@@ -1,0 +1,306 @@
+"""Matcha TTS backend（支持 matcha_zh/matcha_en/matcha_zh_en）。"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import List, Optional
+
+import numpy as np
+
+from ....app.settings import TtsConfig
+from ....common.errors import TtsBackendUnavailable, TtsInvalidText
+from ....common.ready_state import BackendReadyState
+from ....common.schemas import ModelInfo, VoiceInfo
+from .base import (
+    TtsAudioChunk,
+    TtsBackend,
+    TtsDone,
+    TtsResult,
+    TtsStreamSession,
+)
+
+logger = logging.getLogger(__name__)
+logger_bridge = logging.getLogger(f"{__name__}._Bridge")
+
+_DEFAULT_SAMPLE_RATES = {
+    "matcha_zh": 22050,
+    "matcha_en": 22050,
+    "matcha_zh_en": 16000,
+}
+
+
+_VOICES = {
+    "matcha_zh": [
+        VoiceInfo(id="default", name="默认中文", language="zh", gender="female"),
+    ],
+    "matcha_en": [
+        VoiceInfo(id="default", name="Default English", language="en", gender="female"),
+    ],
+    "matcha_zh_en": [
+        VoiceInfo(id="default", name="中英混合", language="zh-en", gender="female"),
+    ],
+}
+
+
+class MatchaBackend(TtsBackend):
+    def __init__(self, config: TtsConfig):
+        self._config = config
+        self._mock = False
+        self._engine = None
+        self._engine_sample_rate = (
+            config.sample_rate
+            or _DEFAULT_SAMPLE_RATES.get(config.backend, 22050)
+        )
+        self._state = BackendReadyState.INITIALIZING
+
+        try:
+            import spacemit_tts  # noqa: F401
+        except ImportError:
+            logger.warning("spacemit_tts not installed → TTS mock backend")
+            self._mock = True
+            self._state = BackendReadyState.DEGRADED
+            return
+
+        try:
+            import spacemit_tts
+            engine_config = spacemit_tts.Config.preset(config.backend)
+            if config.sample_rate is not None:
+                engine_config.sample_rate = config.sample_rate
+            engine_config.speed = config.speed
+            self._engine = spacemit_tts.Engine(engine_config)
+            self._engine_sample_rate = int(engine_config.sample_rate)
+            self._state = BackendReadyState.WARMING_UP
+        except Exception as e:
+            logger.exception("TTS engine init failed (%s), falling back to mock", e)
+            self._mock = True
+            self._state = BackendReadyState.DEGRADED
+
+    @property
+    def backend_name(self) -> str:
+        suffix = " (mock)" if self._mock else ""
+        return f"{self._config.backend}{suffix}"
+
+    @property
+    def sample_rate(self) -> int:
+        return self._engine_sample_rate
+
+    @property
+    def state(self) -> BackendReadyState:
+        return self._state
+
+    async def warmup(self) -> None:
+        self._state = BackendReadyState.READY
+
+    async def synthesize(
+        self,
+        text: str,
+        voice_id: Optional[str],
+        speed: float,
+        pitch: float,
+        volume: float,
+    ) -> TtsResult:
+        if not text or not text.strip():
+            raise TtsInvalidText("empty text")
+
+        if self._mock:
+            return _mock_result(text, self.sample_rate)
+
+        try:
+            raw = await asyncio.to_thread(self._engine.synthesize, text)
+        except Exception as e:
+            logger.exception("TTS synthesize failed")
+            raise TtsBackendUnavailable(str(e)) from e
+
+        if not raw.is_success:
+            raise TtsBackendUnavailable(
+                f"synthesize failed: {getattr(raw, 'message', 'unknown error')}"
+            )
+
+        return TtsResult(
+            audio=np.asarray(raw.audio_int16, dtype=np.int16),
+            sample_rate=int(raw.sample_rate),
+            duration_ms=float(raw.duration_ms),
+            processing_ms=float(raw.processing_time_ms),
+            rtf=float(raw.rtf),
+        )
+
+    async def open_stream(
+        self, voice_id: Optional[str], speed: float
+    ) -> TtsStreamSession:
+        loop = asyncio.get_running_loop()
+        if self._mock:
+            return _MockTtsStream(
+                loop, self.sample_rate, self._config.stream.event_queue_size
+            )
+        return _MatchaStream(
+            self._engine, loop, self.sample_rate, self._config.stream.event_queue_size
+        )
+
+    def get_voices(self) -> List[VoiceInfo]:
+        return _VOICES.get(self._config.backend, [])
+
+    def get_models(self) -> List[ModelInfo]:
+        entries = []
+        for backend, voices in _VOICES.items():
+            entries.append(
+                ModelInfo(
+                    id=backend,
+                    name=f"Matcha-TTS {backend}",
+                    capabilities=["tts", "streaming"],
+                    languages=[v.language for v in voices],
+                    sample_rate=self._engine_sample_rate,
+                    loaded=backend == self._config.backend and self.is_ready,
+                )
+            )
+        return entries
+
+    def get_params(self) -> dict:
+        return {
+            "speed": self._config.speed,
+            "pitch": self._config.pitch,
+            "volume": self._config.volume,
+            "emotion_strength": None,
+        }
+
+    def get_engine_config(self) -> dict:
+        return {
+            "threads": 1,
+            "sample_rate": self._engine_sample_rate,
+            "cache_policy": None,
+        }
+
+
+# ---------------------------------------------------------------------------
+
+def _mock_result(text: str, sample_rate: int) -> TtsResult:
+    n_samples = sample_rate  # 1 秒静音
+    return TtsResult(
+        audio=np.zeros(n_samples, dtype=np.int16),
+        sample_rate=sample_rate,
+        duration_ms=1000.0,
+        processing_ms=1.0,
+        rtf=0.01,
+    )
+
+
+class _MockTtsStream(TtsStreamSession):
+    """Mock 流式合成：每次 send_text → 产出 200ms 静音 chunk + 一个 metadata；complete → done。"""
+
+    def __init__(self, loop, sample_rate: int, queue_size: int):
+        super().__init__(loop, queue_size=queue_size)
+        self._sample_rate = sample_rate
+        self._chunk_samples = sample_rate // 5  # 200ms
+        self._seq = 0
+        self._timestamp_ms = 0.0
+
+    async def start(self) -> None:
+        # mock 不用预热
+        return
+
+    async def send_text(self, text: str) -> None:
+        pcm = np.zeros(self._chunk_samples, dtype=np.int16).tobytes()
+        self._enqueue_threadsafe(TtsAudioChunk(pcm=pcm, seq=self._seq))
+        self._seq += 1
+        self._timestamp_ms += 200.0
+        # 可以附带一个 metadata（简单示范）
+        # self._enqueue_threadsafe(TtsMetadata(text=text, timestamp_ms=self._timestamp_ms))
+
+    async def complete(self) -> None:
+        self._enqueue_threadsafe(TtsDone(duration_ms=self._timestamp_ms, rtf=0.01))
+        self._enqueue_threadsafe(None)
+
+
+class _MatchaStream(TtsStreamSession):
+    """真 SDK 流式合成。
+
+    SDK 契约（见 spacemit_tts.TtsCallback）：
+    - engine.synthesize_streaming(text, callback) 是阻塞式调用，callback 为 TtsCallback 子类实例
+    - 回调链：on_open → on_event*(per chunk) → on_complete / on_error → on_close
+    - SDK 强同步：synthesize_streaming 返回前所有 callback 已触发
+
+    WS 协议一次 session 可多轮 send_text，最终一次 complete() 发 TtsDone——
+    seq / total_ms / last_rtf 跨 send_text 累加，每轮新建一个 bridge。
+    """
+
+    def __init__(self, engine, loop, sample_rate: int, queue_size: int):
+        super().__init__(loop, queue_size=queue_size)
+        self._engine = engine
+        self._sample_rate = sample_rate
+        self._seq = 0
+        self._total_ms = 0.0
+        self._last_rtf = 0.0
+        self._error_message: Optional[str] = None
+
+    async def start(self) -> None:
+        return
+
+    async def send_text(self, text: str) -> None:
+        if not text:
+            return
+        bridge = self._make_bridge()
+        try:
+            await asyncio.to_thread(
+                self._engine.synthesize_streaming, text, bridge
+            )
+        except Exception as e:
+            logger.exception("matcha stream synth failed")
+            raise TtsBackendUnavailable(str(e)) from e
+        if self._error_message:
+            err, self._error_message = self._error_message, None
+            raise TtsBackendUnavailable(err)
+
+    def _make_bridge(self):
+        import spacemit_tts
+
+        outer = self
+
+        class _Bridge(spacemit_tts.TtsCallback):
+            def on_open(self) -> None:
+                logger_bridge.debug("tts on_open")
+
+            def on_event(self, result) -> None:
+                try:
+                    arr = np.asarray(result.get_audio_int16(), dtype=np.int16)
+                    pcm = arr.tobytes()
+                except Exception:
+                    logger_bridge.debug(
+                        "tts on_event decode failed", exc_info=True
+                    )
+                    return
+
+                try:
+                    dur = float(result.get_duration_ms() or 0)
+                    rtf = float(result.get_rtf() or 0.0)
+                except Exception:
+                    dur = 0.0
+                    rtf = 0.0
+
+                logger_bridge.debug(
+                    "tts on_event seq=%d dur=%.1fms rtf=%.3f bytes=%d",
+                    outer._seq, dur, rtf, len(pcm),
+                )
+                outer._enqueue_threadsafe(
+                    TtsAudioChunk(pcm=pcm, seq=outer._seq)
+                )
+                outer._seq += 1
+                outer._total_ms += dur
+                outer._last_rtf = rtf
+
+            def on_complete(self) -> None:
+                logger_bridge.debug("tts on_complete")
+
+            def on_error(self, message: str) -> None:
+                logger_bridge.error("tts on_error: %s", message)
+                outer._error_message = str(message) if message else "tts error"
+
+            def on_close(self) -> None:
+                logger_bridge.debug("tts on_close")
+
+        return _Bridge()
+
+    async def complete(self) -> None:
+        self._enqueue_threadsafe(
+            TtsDone(duration_ms=self._total_ms, rtf=self._last_rtf)
+        )
+        self._enqueue_threadsafe(None)

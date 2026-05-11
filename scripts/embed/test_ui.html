@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>SpacemiT AI Gateway Embed 接口测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; display: flex; height: 100vh; }
+    #sidebar { width: 280px; background: #111; border-right: 1px solid #333; overflow-y: auto; flex-shrink: 0; }
+    #sidebar h2 { padding: 16px; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #333; }
+    .api-group { padding: 8px 0; border-bottom: 1px solid #222; }
+    .api-group-title { padding: 6px 16px; font-size: 11px; color: #666; text-transform: uppercase; }
+    .api-item { padding: 7px 16px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+    .api-item:hover { background: #222; }
+    .api-item.active { background: #1e3a5f; color: #60a5fa; }
+    .method { font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 3px; min-width: 44px; text-align: center; flex-shrink: 0; }
+    .GET    { background: #1a4731; color: #4ade80; }
+    .POST   { background: #3b2a1a; color: #fb923c; }
+    .DELETE { background: #3b1a1a; color: #f87171; }
+    #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #toolbar { padding: 10px 16px; background: #111; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #base-url { flex: 1; min-width: 200px; background: #222; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+    .cache-btn { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: monospace; }
+    #btn-reset-db    { background: #3b1a1a; color: #f87171; }
+    #btn-reset-db:hover    { background: #5a2020; }
+    #btn-clear-models { background: #3b2a1a; color: #fb923c; }
+    #btn-clear-models:hover { background: #5a3a1a; }
+    #cache-toast { font-size: 11px; color: #4ade80; display: none; }
+    #content { flex: 1; display: flex; overflow: hidden; }
+    #request-panel { width: 50%; border-right: 1px solid #333; display: flex; flex-direction: column; }
+    #response-panel { width: 50%; display: flex; flex-direction: column; }
+    .panel-header { padding: 10px 16px; background: #161616; border-bottom: 1px solid #333; font-size: 12px; color: #888; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+    #endpoint-display { font-size: 13px; color: #e0e0e0; padding: 8px 16px; background: #161616; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; }
+    #endpoint-display .method { font-size: 11px; }
+    #endpoint-path { color: #93c5fd; }
+    label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; margin-top: 12px; }
+    label:first-child { margin-top: 0; }
+    input[type=text], textarea, select {
+      width: 100%; background: #222; border: 1px solid #444; color: #e0e0e0;
+      padding: 7px 10px; border-radius: 4px; font-family: monospace; font-size: 12px;
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    input[type=text]:focus, textarea:focus { outline: none; border-color: #60a5fa; }
+    #send-btn { background: #1d4ed8; color: white; border: none; padding: 7px 20px; border-radius: 4px; cursor: pointer; font-size: 13px; font-family: monospace; }
+    #send-btn:hover { background: #2563eb; }
+    #send-btn:disabled { background: #374151; cursor: not-allowed; }
+    #response-body { flex: 1; overflow-y: auto; padding: 12px; }
+    #response-text { white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+    .status-ok   { color: #4ade80; }
+    .status-err  { color: #f87171; }
+    .status-info { color: #60a5fa; }
+    #status-bar { padding: 6px 16px; background: #111; border-top: 1px solid #333; font-size: 11px; color: #666; display: flex; gap: 16px; }
+    .stream-chunk { color: #a3e635; }
+    #clear-btn { background: none; border: 1px solid #444; color: #888; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    #clear-btn:hover { border-color: #666; color: #aaa; }
+    #model-bar { padding: 8px 16px; background: #0d1117; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 38px; }
+    #model-bar-label { font-size: 11px; color: #555; flex-shrink: 0; }
+    .model-chip { font-size: 11px; padding: 3px 10px; border-radius: 12px; border: 1px solid #333; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: border-color 0.15s; }
+    .model-chip:hover { border-color: #60a5fa; }
+    .model-chip.active { border-color: #4ade80; color: #4ade80; background: #0d2010; }
+    .model-chip.loading { border-color: #fbbf24; color: #fbbf24; cursor: default; }
+    .model-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .model-chip.active .model-dot { background: #4ade80; }
+    .model-chip.loading .model-dot { background: #fbbf24; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    #model-bar-empty { font-size: 11px; color: #444; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>Embed API</h2>
+
+  <div class="api-group">
+    <div class="api-group-title">系统</div>
+    <div class="api-item" data-method="GET" data-path="/v1/embed/healthz" data-body="">
+      <span class="method GET">GET</span>/healthz
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">模型管理</div>
+    <div class="api-item" data-method="GET" data-path="/v1/embed/models" data-body="">
+      <span class="method GET">GET</span>/models
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/register"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","source_type":"local_url","url":"https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Bge-Small-Zh-V1.5-Q4_K_M.gguf"}'>
+      <span class="method POST">POST</span>/register (local_url)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/register"
+         data-body='{"model":"my-embed-local","source_type":"local_path","local_path":"/path/to/embed.gguf"}'>
+      <span class="method POST">POST</span>/register (local_path)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/register"
+         data-body='{"model":"openai-embed","source_type":"remote","api_base_url":"https://api.openai.com/v1","api_key":"sk-xxx"}'>
+      <span class="method POST">POST</span>/register (remote)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/deregister"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/deregister
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/load"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","extra_args":[]}'>
+      <span class="method POST">POST</span>/load
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/load"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","extra_args":["--ctx-size","512"]}'>
+      <span class="method POST">POST</span>/load (ctx-size)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/unload"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/unload
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/switch"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/switch
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">下载管理</div>
+    <div class="api-item" data-method="POST" data-path="/v1/embed/models/qwen3-embedding-0.6b-q4_0/download" data-body="">
+      <span class="method POST">POST</span>/download start
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/embed/models/qwen3-embedding-0.6b-q4_0/download" data-body="">
+      <span class="method GET">GET</span>/download progress
+    </div>
+    <div class="api-item" data-method="DELETE" data-path="/v1/embed/models/qwen3-embedding-0.6b-q4_0/download" data-body="">
+      <span class="method DELETE">DELETE</span>/download cancel
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">推理 (OpenAI 兼容)</div>
+    <div class="api-item" data-method="POST" data-path="/v1/embeddings"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","input":"你好世界"}'>
+      <span class="method POST">POST</span>/embeddings (单文本)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embeddings"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","input":["你好世界","Hello World","Bonjour le monde"]}'>
+      <span class="method POST">POST</span>/embeddings (批量)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embeddings"
+         data-body='{"model":"bge-small-en-v1.5-q4_k_m","input":"The quick brown fox jumps over the lazy dog"}'>
+      <span class="method POST">POST</span>/embeddings (英文)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/embeddings"
+         data-body='{"model":"qwen3-embedding-0.6b-q4_0","input":["人工智能","机器学习","深度学习","神经网络"]}'>
+      <span class="method POST">POST</span>/embeddings (多文本)
+    </div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <input type="text" id="base-url" value="http://localhost:18790" placeholder="Base URL">
+    <button class="cache-btn" id="btn-reset-db">重置数据库</button>
+    <button class="cache-btn" id="btn-clear-models">清空模型</button>
+    <span id="cache-toast"></span>
+  </div>
+
+  <div id="model-bar">
+    <span id="model-bar-label">已加载模型:</span>
+    <span id="model-bar-empty">无</span>
+  </div>
+
+  <div id="content">
+    <div id="request-panel">
+      <div id="endpoint-display">
+        <span class="method GET" id="endpoint-method">GET</span>
+        <span id="endpoint-path">/v1/embed/healthz</span>
+      </div>
+      <div class="panel-header">
+        <span>请求</span>
+        <button id="send-btn">发送</button>
+      </div>
+      <div class="panel-body">
+        <label>请求体 (JSON)</label>
+        <textarea id="request-body"></textarea>
+      </div>
+    </div>
+
+    <div id="response-panel">
+      <div class="panel-header">
+        <span>响应</span>
+        <button id="clear-btn">清空</button>
+      </div>
+      <div id="response-body">
+        <pre id="response-text" class="status-info">等待请求...</pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span>状态: <span id="status-code">-</span></span>
+    <span id="status-msg">Ready</span>
+    <span id="status-time"></span>
+  </div>
+</div>
+
+<script>
+  const baseUrlInput      = document.getElementById('base-url');
+  const endpointMethodEl  = document.getElementById('endpoint-method');
+  const endpointPathEl    = document.getElementById('endpoint-path');
+  const requestBodyEl     = document.getElementById('request-body');
+  const sendBtn           = document.getElementById('send-btn');
+  const responseTextEl    = document.getElementById('response-text');
+  const responseStatusEl  = document.getElementById('status-code');
+  const statusMsg         = document.getElementById('status-msg');
+  const statusTime        = document.getElementById('status-time');
+  const clearBtn          = document.getElementById('clear-btn');
+  const modelBarLabel     = document.getElementById('model-bar-label');
+  const modelBarEmpty     = document.getElementById('model-bar-empty');
+  const cacheToast        = document.getElementById('cache-toast');
+
+  let currentMethod = 'GET';
+  let currentPath   = '/v1/embed/healthz';
+
+  document.querySelectorAll('.api-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.api-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      currentMethod = item.dataset.method;
+      currentPath   = item.dataset.path;
+      const body    = item.dataset.body || '';
+
+      endpointMethodEl.textContent = currentMethod;
+      endpointMethodEl.className   = 'method ' + currentMethod;
+      endpointPathEl.textContent   = currentPath;
+      requestBodyEl.value          = body ? JSON.stringify(JSON.parse(body), null, 2) : '';
+    });
+  });
+
+  document.querySelector('.api-item').click();
+
+  clearBtn.addEventListener('click', () => {
+    responseTextEl.textContent = '';
+    responseStatusEl.textContent = '-';
+    statusMsg.textContent = 'Ready';
+    statusTime.textContent = '';
+  });
+
+  sendBtn.addEventListener('click', sendRequest);
+
+  async function sendRequest() {
+    const base   = baseUrlInput.value.trim();
+    const url    = base + currentPath;
+    const method = currentMethod;
+    const bodyText = requestBodyEl.value.trim();
+
+    sendBtn.disabled    = true;
+    sendBtn.textContent = '发送中...';
+    responseTextEl.textContent = '请求中...';
+    responseTextEl.className   = 'status-info';
+    statusMsg.textContent      = 'Sending...';
+
+    const start = Date.now();
+    try {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (method !== 'GET' && bodyText) opts.body = bodyText;
+
+      const resp    = await fetch(url, opts);
+      const elapsed = Date.now() - start;
+      responseStatusEl.textContent = resp.status;
+      responseStatusEl.style.color = resp.ok ? '#4ade80' : '#f87171';
+
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        responseTextEl.textContent = JSON.stringify(await resp.json(), null, 2);
+      } else {
+        responseTextEl.textContent = await resp.text();
+      }
+      responseTextEl.className = resp.ok ? 'status-ok' : 'status-err';
+      statusTime.textContent   = elapsed + 'ms';
+      statusMsg.textContent    = resp.ok ? 'OK' : 'Error';
+
+      if (currentPath === '/v1/embed/models' || currentPath.includes('/load') || currentPath.includes('/unload') || currentPath.includes('/switch')) {
+        setTimeout(refreshModels, 300);
+      }
+    } catch (e) {
+      responseTextEl.textContent = e.message;
+      responseTextEl.className   = 'status-err';
+      statusMsg.textContent      = 'Failed';
+    } finally {
+      sendBtn.disabled    = false;
+      sendBtn.textContent = '发送';
+    }
+  }
+
+  async function refreshModels() {
+    try {
+      const base = baseUrlInput.value.trim();
+      const resp = await fetch(base + '/v1/embed/models');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const models = data.models || [];
+
+      const loaded = models.filter(m => m.status === 'loaded');
+      const loading = models.filter(m => m.status === 'loading');
+
+      const bar = document.getElementById('model-bar');
+      bar.querySelectorAll('.model-chip').forEach(c => c.remove());
+
+      if (loaded.length === 0 && loading.length === 0) {
+        modelBarEmpty.style.display = 'inline';
+        return;
+      }
+      modelBarEmpty.style.display = 'none';
+
+      loaded.forEach(m => {
+        const chip = document.createElement('div');
+        chip.className = 'model-chip active';
+        chip.innerHTML = `<span class="model-dot"></span>${m.id}`;
+        bar.appendChild(chip);
+      });
+
+      loading.forEach(m => {
+        const chip = document.createElement('div');
+        chip.className = 'model-chip loading';
+        chip.innerHTML = `<span class="model-dot"></span>${m.id}`;
+        bar.appendChild(chip);
+      });
+    } catch (e) {
+      console.error('refresh models failed:', e);
+    }
+  }
+
+  document.getElementById('btn-reset-db').addEventListener('click', async () => {
+    if (!confirm('确定要删除 Embed 数据库吗？')) return;
+    try {
+      const resp = await fetch(baseUrlInput.value.trim() + '/v1/embed/models');
+      if (!resp.ok) throw new Error('无法连接服务');
+      cacheToast.textContent = '请手动执行: scripts/embed/clean.sh db';
+      cacheToast.style.display = 'inline';
+      setTimeout(() => { cacheToast.style.display = 'none'; }, 3000);
+    } catch (e) {
+      alert('操作失败: ' + e.message);
+    }
+  });
+
+  document.getElementById('btn-clear-models').addEventListener('click', async () => {
+    if (!confirm('确定要清空所有 Embed 模型文件吗？')) return;
+    try {
+      const resp = await fetch(baseUrlInput.value.trim() + '/v1/embed/models');
+      if (!resp.ok) throw new Error('无法连接服务');
+      cacheToast.textContent = '请手动执行: scripts/embed/clean.sh models';
+      cacheToast.style.display = 'inline';
+      setTimeout(() => { cacheToast.style.display = 'none'; }, 3000);
+    } catch (e) {
+      alert('操作失败: ' + e.message);
+    }
+  });
+
+  refreshModels();
+  setInterval(refreshModels, 3000);
+</script>
+</body>
+</html>
