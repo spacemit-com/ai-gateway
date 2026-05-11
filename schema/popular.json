@@ -1,0 +1,49 @@
+{
+  "id": "popular",
+  "name": "热门模型",
+  "nameEn": "Popular Models",
+  "description": "跨类别热门模型推荐清单",
+  "descriptionEn": "A cross-category list of popular model recommendations.",
+  "items": [
+    {
+      "categoryId": "llm",
+      "modelId": "qwen3-0-6b-q4-0",
+      "order": 10
+    },
+    {
+      "categoryId": "llm",
+      "modelId": "qwen3-30b-a3b-q4-0",
+      "order": 20
+    },
+    {
+      "categoryId": "speech",
+      "modelId": "sensevoice",
+      "order": 30
+    },
+    {
+      "categoryId": "speech",
+      "modelId": "matcha-icefall-zh-en",
+      "order": 40
+    },
+    {
+      "categoryId": "speech",
+      "modelId": "silero-vad",
+      "order": 50
+    },
+    {
+      "categoryId": "vision",
+      "modelId": "yolov8s",
+      "order": 60
+    },
+    {
+      "categoryId": "vision",
+      "modelId": "yolov8s-pose",
+      "order": 70
+    },
+    {
+      "categoryId": "vision",
+      "modelId": "yolov8s-seg",
+      "order": 80
+    }
+  ]
+}
