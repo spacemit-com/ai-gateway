@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SpaceMIT · SpacemiT AI Gateway — 一体化端侧 AI 推理平台</title>
+  <link rel="icon" type="image/png" href="console/img/spacemit.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="landing.css"/>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <a class="nav-brand" href="#">
+      <img src="console/img/spacemit.png" alt=""/>
+      <div>
+        <div class="bn">SpaceMIT</div>
+        <div class="bs">spacemit-ai-gateway / v0.3</div>
+      </div>
+    </a>
+    <div class="nav-links">
+      <a href="#capabilities">能力</a>
+      <a href="#numbers">性能</a>
+      <a href="#architecture">架构</a>
+      <a href="#launch">部署</a>
+    </div>
+    <a class="nav-cta" href="console/index.html">
+      进入控制台
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-bg">
+      <canvas id="hero-canvas"></canvas>
+    </div>
+
+    <div>
+      <div class="eyebrow">
+        <span class="dot"></span>
+        <span><b>SYSTEM ONLINE</b> &nbsp;·&nbsp; 5 / 5 服务在线 &nbsp;·&nbsp; RISC-V Matrix</span>
+      </div>
+
+      <h1 class="headline">
+        端侧推理，<br/>
+        不再是 <span class="strike">妥协</span><br/>
+        而是 <span class="accent">默认选项</span>
+      </h1>
+
+      <p class="subline">
+        一个统一的 SpacemiT AI Gateway，把 <em>ASR · TTS · VAD · 视觉 · LLM</em> 压进同一套调度核心，
+        全部跑在你自己的机器上。延迟毫秒级，数据不出域，能力即服务。
+      </p>
+
+      <div class="hero-cta">
+        <a class="btn-primary" href="console/index.html">
+          打开控制台
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn-ghost" href="#capabilities">
+          查看能力矩阵
+          <span class="kbd">↓</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Live console preview -->
+    <div class="live-panel">
+      <div class="live-panel-head">
+        <div class="tl"><span></span><span></span><span></span></div>
+        <div class="title">spacemit-ai-gateway · /var/log/inference.live</div>
+        <div class="status"><span class="dot"></span>STREAMING</div>
+      </div>
+      <div class="stream" id="stream"></div>
+      <div class="live-stats">
+        <div class="cell">
+          <div class="k">requests · 24h</div>
+          <div class="v"><span id="stat-req">3,248</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">p50 latency</div>
+          <div class="v"><span id="stat-lat">58</span><span class="unit">ms</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">npu load</div>
+          <div class="v"><span id="stat-npu">72</span><span class="unit">%</span></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- TICKER -->
+  <div class="ticker">
+    <div class="ticker-track">
+      <span><span class="acc">●</span> SenseVoice</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen3-ASR</span><span class="div">/</span>
+      <span><span class="acc">●</span> Matcha-TTS · 中英日韩</span><span class="div">/</span>
+      <span><span class="acc">●</span> Kokoro-TTS</span><span class="div">/</span>
+      <span><span class="acc">●</span> Silero VAD</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen2.5-VL</span><span class="div">/</span>
+      <span><span class="acc">●</span> YOLOv11 · v8 · v5-face</span><span class="div">/</span>
+      <span><span class="acc">●</span> ArcFace</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen3-4B · 0.6B</span><span class="div">/</span>
+      <!-- duplicate for seamless loop -->
+      <span><span class="acc">●</span> SenseVoice</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen3-ASR</span><span class="div">/</span>
+      <span><span class="acc">●</span> Matcha-TTS · 中英日韩</span><span class="div">/</span>
+      <span><span class="acc">●</span> Kokoro-TTS</span><span class="div">/</span>
+      <span><span class="acc">●</span> Silero VAD</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen2.5-VL</span><span class="div">/</span>
+      <span><span class="acc">●</span> YOLOv11 · v8 · v5-face</span><span class="div">/</span>
+      <span><span class="acc">●</span> ArcFace</span><span class="div">/</span>
+      <span><span class="acc">●</span> Qwen3-4B · 0.6B</span><span class="div">/</span>
+    </div>
+  </div>
+
+  <!-- CAPABILITIES -->
+  <section class="section" id="capabilities">
+    <div class="section-head">
+      <div class="section-label">01 / capabilities</div>
+      <h2 class="section-title">五条能力栈，<br/>一个调度核心。</h2>
+      <p class="section-sub">
+        每一类能力都内置了经过量化、对齐 Matrix 扩展的主流开源模型。即装即用，也可替换成自有模型。
+      </p>
+    </div>
+
+    <div class="caps">
+      <!-- ASR — wide with waveform -->
+      <div class="cap wide">
+        <canvas class="viz" id="viz-wave" style="bottom: 0; top: auto; height: 120px;"></canvas>
+        <div class="cap-tag">ASR · 语音识别</div>
+        <div class="cap-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>
+        </div>
+        <h3>从语音里抽取一切</h3>
+        <p class="cap-desc">文本、情绪、说话人、事件。多语种、多方言、中英混读，一套接口全部对齐。</p>
+        <div class="cap-models">
+          <span class="chip">SenseVoice</span>
+          <span class="chip">Qwen3-ASR</span>
+        </div>
+      </div>
+
+      <!-- TTS -->
+      <div class="cap wide">
+        <div class="cap-tag">TTS · 语音合成</div>
+        <div class="cap-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>
+        </div>
+        <h3>自然、可定制、够快</h3>
+        <p class="cap-desc">Matcha / Kokoro 的多语种合成栈。22k · 24k 采样，流式输出，延迟稳定。</p>
+        <div class="cap-models">
+          <span class="chip">Matcha-TTS 中</span>
+          <span class="chip">Matcha-TTS 英</span>
+          <span class="chip">Matcha-TTS 中英</span>
+          <span class="chip">Kokoro</span>
+        </div>
+      </div>
+
+      <!-- VAD -->
+      <div class="cap third">
+        <div class="cap-tag">VAD</div>
+        <div class="cap-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-6 3 12 3-9 2 6h5"/></svg>
+        </div>
+        <h3>切得准的<br/>语音活动检测</h3>
+        <p class="cap-desc">Silero · 16kHz 实时切片，单帧级精度。</p>
+        <div class="cap-models">
+          <span class="chip">Silero VAD</span>
+        </div>
+      </div>
+
+      <!-- Vision -->
+      <div class="cap third">
+        <div class="cap-tag">VISION</div>
+        <div class="cap-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h3>看得见的世界</h3>
+        <p class="cap-desc">目标检测、人脸识别、视觉问答 —— 全部 INT8 量化，Matrix 加速。</p>
+        <div class="cap-models">
+          <span class="chip">Qwen2.5-VL</span>
+          <span class="chip">YOLOv11</span>
+          <span class="chip">YOLOv8</span>
+          <span class="chip">YOLOv5-Face</span>
+          <span class="chip">ArcFace</span>
+        </div>
+      </div>
+
+      <!-- LLM — third column with orbit -->
+      <div class="cap third">
+        <canvas class="viz" id="viz-orbit"></canvas>
+        <div class="cap-tag">LLM</div>
+        <div class="cap-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+        </div>
+        <h3>本地大模型，<br/>流式毫秒级</h3>
+        <p class="cap-desc">Qwen3 家族部署到端侧，GGUF 量化，function calling 开箱即用。</p>
+        <div class="cap-models">
+          <span class="chip">Qwen3-4B</span>
+          <span class="chip">Qwen3-0.6B</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NUMBERS -->
+  <section class="section" id="numbers" style="padding-top: 40px;">
+    <div class="section-head">
+      <div class="section-label">02 / performance</div>
+      <h2 class="section-title">数字不说谎。</h2>
+      <p class="section-sub">
+        所有延迟指标在 SpaceMIT K1 / K3 实机测得，batch=1，无预加载欺骗。
+      </p>
+    </div>
+
+    <div class="numbers">
+      <div class="cell">
+        <div class="k">ASR 首包延迟</div>
+        <div class="v"><span data-count="180">0</span><span class="unit">ms</span></div>
+        <div class="sub">sensevoice · 16kHz · streaming</div>
+      </div>
+      <div class="cell">
+        <div class="k">TTS 首字延迟</div>
+        <div class="v"><span data-count="240">0</span><span class="unit">ms</span></div>
+        <div class="sub">matcha_zh · 22050Hz · streaming</div>
+      </div>
+      <div class="cell">
+        <div class="k">LLM 吞吐</div>
+        <div class="v"><span data-count="22" data-decimals="1">0</span><span class="unit">tok/s</span></div>
+        <div class="sub">qwen3-4b · Q4 · 端侧</div>
+      </div>
+      <div class="cell">
+        <div class="k">并发能力</div>
+        <div class="v"><span data-count="64">0</span><span class="unit">req</span></div>
+        <div class="sub">混合负载 · Matrix+CPU 协同</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="section" id="architecture">
+    <div class="section-head">
+      <div class="section-label">03 / architecture</div>
+      <h2 class="section-title">一套调度，四层栈。</h2>
+    </div>
+
+    <div class="arch">
+      <div class="arch-diagram">
+        <svg viewBox="0 0 400 400" id="arch-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="oklch(0.84 0.19 135)" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="oklch(0.84 0.19 135)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- layers -->
+          <g stroke="#33363c" fill="none" stroke-width="1">
+            <rect x="30" y="40"  width="340" height="62" rx="10"/>
+            <rect x="30" y="118" width="340" height="62" rx="10"/>
+            <rect x="30" y="196" width="340" height="62" rx="10"/>
+            <rect x="30" y="274" width="340" height="62" rx="10"/>
+          </g>
+
+          <!-- connecting lines between layers -->
+          <g stroke="oklch(0.84 0.19 135)" stroke-width="1" stroke-dasharray="3 4" opacity="0.35">
+            <line x1="120" y1="102" x2="120" y2="118"/>
+            <line x1="200" y1="102" x2="200" y2="118"/>
+            <line x1="280" y1="102" x2="280" y2="118"/>
+            <line x1="120" y1="180" x2="120" y2="196"/>
+            <line x1="200" y1="180" x2="200" y2="196"/>
+            <line x1="280" y1="180" x2="280" y2="196"/>
+            <line x1="200" y1="258" x2="200" y2="274"/>
+          </g>
+
+          <!-- labels -->
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#8a8e95">
+            <text x="44" y="58" fill="oklch(0.84 0.19 135)">L4 · API</text>
+            <text x="44" y="72">REST · WebSocket · gRPC</text>
+            <text x="44" y="88">health · metrics · OpenAPI</text>
+
+            <text x="44" y="136" fill="oklch(0.84 0.19 135)">L3 · SERVING</text>
+            <text x="44" y="150">dispatcher · queue · batcher</text>
+            <text x="44" y="166">autoscaler · circuit breaker</text>
+
+            <text x="44" y="214" fill="oklch(0.84 0.19 135)">L2 · RUNTIME</text>
+            <text x="44" y="228">ONNX · GGUF · tokenizer</text>
+            <text x="44" y="244">cache · kv-store · tensor-rt</text>
+
+            <text x="44" y="292" fill="oklch(0.84 0.19 135)">L1 · HARDWARE</text>
+            <text x="44" y="306">SpaceMIT K1 · Matrix · RISC-V</text>
+            <text x="44" y="322">INT8 · FP16 · 16GB unified</text>
+          </g>
+
+          <!-- packet dots -->
+          <circle r="3" fill="oklch(0.84 0.19 135)">
+            <animateMotion dur="3s" repeatCount="indefinite" path="M 200 40 L 200 340"/>
+            <animate attributeName="opacity" values="0;1;1;0" dur="3s" repeatCount="indefinite"/>
+          </circle>
+          <circle r="2.5" fill="oklch(0.84 0.19 135)">
+            <animateMotion dur="4s" begin="1s" repeatCount="indefinite" path="M 120 340 L 120 40"/>
+            <animate attributeName="opacity" values="0;1;1;0" dur="4s" begin="1s" repeatCount="indefinite"/>
+          </circle>
+          <circle r="2" fill="oklch(0.72 0.20 340)">
+            <animateMotion dur="5s" begin="2s" repeatCount="indefinite" path="M 280 40 L 280 340"/>
+            <animate attributeName="opacity" values="0;0.8;0.8;0" dur="5s" begin="2s" repeatCount="indefinite"/>
+          </circle>
+        </svg>
+      </div>
+
+      <div class="arch-list">
+        <div class="arch-item">
+          <div class="num">01</div>
+          <div>
+            <div class="nm">API 层</div>
+            <div class="dc">REST / WebSocket / gRPC 三种协议。OpenAPI 文档与健康检查一并生成。</div>
+          </div>
+          <div class="tech">L4</div>
+        </div>
+        <div class="arch-item">
+          <div class="num">02</div>
+          <div>
+            <div class="nm">调度层</div>
+            <div class="dc">动态 batching、请求队列、熔断、预加载。从第一个请求起就不冷启动。</div>
+          </div>
+          <div class="tech">L3</div>
+        </div>
+        <div class="arch-item">
+          <div class="num">03</div>
+          <div>
+            <div class="nm">推理运行时</div>
+            <div class="dc">ONNX · GGUF · 自研 kernel。KV-Cache、tokenizer、词库热加载。</div>
+          </div>
+          <div class="tech">L2</div>
+        </div>
+        <div class="arch-item">
+          <div class="num">04</div>
+          <div>
+            <div class="nm">硬件抽象</div>
+            <div class="dc">直接对接 SpaceMIT Matrix 扩展,支持 INT8 / INT4 混精度,统一内存模型。</div>
+          </div>
+          <div class="tech">L1</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-footer" id="launch">
+    <h2>准备好了吗?<br/><span class="accent">一键进入控制台。</span></h2>
+    <p>不需要注册,不需要部署向导。打开就能看到你机器上的 AI 能力全景。</p>
+
+    <div class="terminal-cta">
+      <span class="prompt">~</span><span class="cmd">spacemit-ai-gateway start</span><a href="console/index.html">
+        进入控制台
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </section>
+
+  <footer>
+    <div>© 2026 SpaceMIT · spacemit-ai-gateway v0.3</div>
+    <div class="links">
+      <a href="console/index.html">控制台</a>
+      <a href="#capabilities">能力</a>
+      <a href="#architecture">架构</a>
+    </div>
+  </footer>
+
+  <script src="landing-hero.js"></script>
+</body>
+</html>

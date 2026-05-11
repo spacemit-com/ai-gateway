@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>SpacemiT AI Gateway 接口测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; display: flex; height: 100vh; }
+    #sidebar { width: 260px; background: #111; border-right: 1px solid #333; overflow-y: auto; flex-shrink: 0; }
+    #sidebar h2 { padding: 16px; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #333; }
+    .api-group { padding: 8px 0; border-bottom: 1px solid #222; }
+    .api-group-title { padding: 6px 16px; font-size: 11px; color: #666; text-transform: uppercase; }
+    .api-item { padding: 7px 16px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+    .api-item:hover { background: #222; }
+    .api-item.active { background: #1e3a5f; color: #60a5fa; }
+    .method { font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 3px; min-width: 44px; text-align: center; flex-shrink: 0; }
+    .GET    { background: #1a4731; color: #4ade80; }
+    .POST   { background: #3b2a1a; color: #fb923c; }
+    .DELETE { background: #3b1a1a; color: #f87171; }
+    #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #toolbar { padding: 10px 16px; background: #111; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #base-url { flex: 1; min-width: 200px; background: #222; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+    .cache-btn { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: monospace; }
+    #btn-reset-db    { background: #3b1a1a; color: #f87171; }
+    #btn-reset-db:hover    { background: #5a2020; }
+    #btn-clear-models { background: #3b2a1a; color: #fb923c; }
+    #btn-clear-models:hover { background: #5a3a1a; }
+    #cache-toast { font-size: 11px; color: #4ade80; display: none; }
+    #content { flex: 1; display: flex; overflow: hidden; }
+    #request-panel { width: 50%; border-right: 1px solid #333; display: flex; flex-direction: column; }
+    #response-panel { width: 50%; display: flex; flex-direction: column; }
+    .panel-header { padding: 10px 16px; background: #161616; border-bottom: 1px solid #333; font-size: 12px; color: #888; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+    #endpoint-display { font-size: 13px; color: #e0e0e0; padding: 8px 16px; background: #161616; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; }
+    #endpoint-display .method { font-size: 11px; }
+    #endpoint-path { color: #93c5fd; }
+    label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; margin-top: 12px; }
+    label:first-child { margin-top: 0; }
+    input[type=text], textarea, select {
+      width: 100%; background: #222; border: 1px solid #444; color: #e0e0e0;
+      padding: 7px 10px; border-radius: 4px; font-family: monospace; font-size: 12px;
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    input[type=text]:focus, textarea:focus { outline: none; border-color: #60a5fa; }
+    #send-btn { background: #1d4ed8; color: white; border: none; padding: 7px 20px; border-radius: 4px; cursor: pointer; font-size: 13px; font-family: monospace; }
+    #send-btn:hover { background: #2563eb; }
+    #send-btn:disabled { background: #374151; cursor: not-allowed; }
+    #response-body { flex: 1; overflow-y: auto; padding: 12px; }
+    #response-text { white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+    .status-ok   { color: #4ade80; }
+    .status-err  { color: #f87171; }
+    .status-info { color: #60a5fa; }
+    #status-bar { padding: 6px 16px; background: #111; border-top: 1px solid #333; font-size: 11px; color: #666; display: flex; gap: 16px; }
+    .stream-chunk { color: #a3e635; }
+    #clear-btn { background: none; border: 1px solid #444; color: #888; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    #clear-btn:hover { border-color: #666; color: #aaa; }
+    #model-bar { padding: 8px 16px; background: #0d1117; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 38px; }
+    #model-bar-label { font-size: 11px; color: #555; flex-shrink: 0; }
+    .model-chip { font-size: 11px; padding: 3px 10px; border-radius: 12px; border: 1px solid #333; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: border-color 0.15s; }
+    .model-chip:hover { border-color: #60a5fa; }
+    .model-chip.active { border-color: #4ade80; color: #4ade80; background: #0d2010; }
+    .model-chip.loading { border-color: #fbbf24; color: #fbbf24; cursor: default; }
+    .model-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .model-chip.active .model-dot { background: #4ade80; }
+    .model-chip.loading .model-dot { background: #fbbf24; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    #model-bar-empty { font-size: 11px; color: #444; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>SpacemiT AI Gateway</h2>
+
+  <div class="api-group">
+    <div class="api-group-title">系统</div>
+    <div class="api-item" data-method="GET" data-path="/healthz" data-body="">
+      <span class="method GET">GET</span>/healthz
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">LLM 管理</div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/healthz" data-body="">
+      <span class="method GET">GET</span>/v1/llm/healthz
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/models" data-body="">
+      <span class="method GET">GET</span>/v1/llm/models
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/register"
+         data-body='{"model":"my-model-__uuid__","source_type":"local_url","url":"https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_0.gguf"}'>
+      <span class="method POST">POST</span>/register (local_url)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/register"
+         data-body='{"model":"local-__uuid__","source_type":"local_path","local_path":"/path/to/model.gguf"}'>
+      <span class="method POST">POST</span>/register (local_path)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/register"
+         data-body='{"model":"remote-__uuid__","source_type":"remote","api_base_url":"https://api.openai.com/v1","api_key":"sk-xxx"}'>
+      <span class="method POST">POST</span>/register (remote)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/deregister"
+         data-body='{"model":"qwen3-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/deregister
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/load"
+         data-body='{"model":"qwen3-0.6b-q4_0","extra_args":[]}'>
+      <span class="method POST">POST</span>/load
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/load"
+         data-body='{"model":"qwen3-0.6b-q4_0","extra_args":["--slot-save-path","/tmp/llama-slots"]}'>
+      <span class="method POST">POST</span>/load (slot-save-path)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/load"
+         data-body='{"model":"qwen3-0.6b-q4_0","extra_args":["--props"]}'>
+      <span class="method POST">POST</span>/load (--props)
+    </div>
+
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/unload"
+         data-body='{"model":"qwen3-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/unload
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/switch"
+         data-body='{"model":"qwen2.5-0.5b-instruct-q4_0"}'>
+      <span class="method POST">POST</span>/switch
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/models/{model}/download"
+         data-body="" data-path-params='["model"]' data-param-defaults='{"model":"qwen3-0.6b-q4_0"}'>
+      <span class="method GET">GET</span>/download progress
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/models/{model}/download"
+         data-body="" data-path-params='["model"]' data-param-defaults='{"model":"qwen3-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/download start
+    </div>
+    <div class="api-item" data-method="DELETE" data-path="/v1/llm/models/{model}/download"
+         data-body="" data-path-params='["model"]' data-param-defaults='{"model":"qwen3-0.6b-q4_0"}'>
+      <span class="method DELETE">DELETE</span>/download cancel
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">LLM 推理（原生）</div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":false,"max_tokens":64}'>
+      <span class="method POST">POST</span>/chat/completions
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"system","content":"You are a translation expert. Please translate the user input and output only the translation result without any explanation. Translate it into English."},{"role":"user","content":"你好，你是谁。"}],"stream":false,"max_tokens":500}'>
+      <span class="method POST">POST</span>/chat/completions (翻译)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":true,"max_tokens":64}'
+         data-stream="true">
+      <span class="method POST">POST</span>/chat/completions (流式)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","prompt":"Once upon a time","stream":false,"max_tokens":32}'>
+      <span class="method POST">POST</span>/completions
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/completion"
+         data-body='{"prompt":"Once upon a time","n_predict":32,"stream":false}'>
+      <span class="method POST">POST</span>/completion
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/responses"
+         data-body='{"model":"qwen3-0.6b-q4_0","input":"你好","stream":false}'>
+      <span class="method POST">POST</span>/responses
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/tokenize"
+         data-body='{"content":"Hello world","add_special":true}'>
+      <span class="method POST">POST</span>/tokenize
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/detokenize"
+         data-body='{"tokens":[9906,1917]}'>
+      <span class="method POST">POST</span>/detokenize
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/apply-template"
+         data-body='{"messages":[{"role":"user","content":"你好"}]}'>
+      <span class="method POST">POST</span>/apply-template
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/infill"
+         data-body='{"input_prefix":"def hello(","input_suffix":"):", "prompt":""}'>
+      <span class="method POST">POST</span>/infill
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/props" data-body="">
+      <span class="method GET">GET</span>/props
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/props"
+         data-body='{"temperature":0.8,"repeat_penalty":1.1,"top_k":40,"top_p":0.95}'>
+      <span class="method POST">POST</span>/props (修改属性)
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/slots" data-body="">
+      <span class="method GET">GET</span>/slots
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/slots?fail_on_no_slot=1" data-body="">
+      <span class="method GET">GET</span>/slots (fail_on_no_slot)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/slots/{id_slot}?action=save"
+         data-body='{"filename":"slot_cache.bin"}' data-path-params='["id_slot"]' data-param-defaults='{"id_slot":"0"}'>
+      <span class="method POST">POST</span>/slots save
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/slots/{id_slot}?action=restore"
+         data-body='{"filename":"slot_cache.bin"}' data-path-params='["id_slot"]' data-param-defaults='{"id_slot":"0"}'>
+      <span class="method POST">POST</span>/slots restore
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/slots/{id_slot}?action=erase"
+         data-body='' data-path-params='["id_slot"]' data-param-defaults='{"id_slot":"0"}'>
+      <span class="method POST">POST</span>/slots erase
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/metrics" data-body="">
+      <span class="method GET">GET</span>/metrics
+    </div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/lora-adapters" data-body="">
+      <span class="method GET">GET</span>/lora-adapters
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/lora-adapters"
+         data-body='[{"id":0,"scale":1.0}]'>
+      <span class="method POST">POST</span>/lora-adapters (设置 scale)
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">Ollama 兼容</div>
+    <div class="api-item" data-method="GET" data-path="/v1/llm/api/tags" data-body="">
+      <span class="method GET">GET</span>/api/tags
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/api/show"
+         data-body='{"name":"qwen3-0.6b-q4_0"}'>
+      <span class="method POST">POST</span>/api/show
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/api/chat"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":false,"options":{"temperature":0.7,"num_predict":64}}'>
+      <span class="method POST">POST</span>/api/chat
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/api/chat"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":true,"options":{"temperature":0.7,"num_predict":64}}'
+         data-stream="true">
+      <span class="method POST">POST</span>/api/chat (流式)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/llm/api/generate"
+         data-body='{"model":"qwen3-0.6b-q4_0","prompt":"Once upon a time","options":{"num_predict":32}}'>
+      <span class="method POST">POST</span>/api/generate
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">OpenAI 兼容</div>
+    <div class="api-item" data-method="GET" data-path="/v1/models" data-body="">
+      <span class="method GET">GET</span>/v1/models
+    </div>
+    <div class="api-item" data-method="GET" data-path="/models" data-body="">
+      <span class="method GET">GET</span>/models (alias)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":false,"max_tokens":64}'>
+      <span class="method POST">POST</span>/v1/chat/completions
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":true,"max_tokens":64}'
+         data-stream="true">
+      <span class="method POST">POST</span>/v1/chat/completions (流式)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/chat/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"stream":false,"max_tokens":64}'>
+      <span class="method POST">POST</span>/chat/completions (alias)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","prompt":"Once upon a time","stream":false,"max_tokens":32}'>
+      <span class="method POST">POST</span>/v1/completions
+    </div>
+    <div class="api-item" data-method="POST" data-path="/completions"
+         data-body='{"model":"qwen3-0.6b-q4_0","prompt":"Once upon a time","stream":false,"max_tokens":32}'>
+      <span class="method POST">POST</span>/completions (alias)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/responses"
+         data-body='{"model":"qwen3-0.6b-q4_0","input":"你好","stream":false}'>
+      <span class="method POST">POST</span>/v1/responses
+    </div>
+  </div>
+
+  <div class="api-group">
+    <div class="api-group-title">Anthropic 兼容</div>
+    <div class="api-item" data-method="POST" data-path="/v1/messages"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"max_tokens":64,"stream":false}'>
+      <span class="method POST">POST</span>/v1/messages
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/messages"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}],"max_tokens":64,"stream":true}'
+         data-stream="true">
+      <span class="method POST">POST</span>/v1/messages (流式)
+    </div>
+    <div class="api-item" data-method="POST" data-path="/v1/messages/count_tokens"
+         data-body='{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"你好"}]}'>
+      <span class="method POST">POST</span>/v1/messages/count_tokens
+    </div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <span style="font-size:12px;color:#888;">Base URL</span>
+    <input id="base-url" type="text" value="http://localhost:18790">
+    <button class="cache-btn" id="btn-reset-db">删除数据库</button>
+    <button class="cache-btn" id="btn-clear-models">删除模型文件</button>
+    <span id="cache-toast"></span>
+  </div>
+
+  <div id="model-bar">
+    <span id="model-bar-label">已加载</span>
+    <span id="model-bar-empty">无</span>
+  </div>
+
+  <div id="endpoint-display">
+    <span class="method GET" id="display-method">GET</span>
+    <span id="endpoint-path">/healthz</span>
+  </div>
+
+  <div id="content">
+    <div id="request-panel">
+      <div class="panel-header">
+        <span>请求</span>
+        <button id="send-btn">发送</button>
+      </div>
+      <div class="panel-body" id="request-body-area">
+        <div id="path-params-section" style="display:none">
+          <label>路径参数</label>
+          <div id="path-params-inputs"></div>
+        </div>
+        <label>请求体 (JSON)</label>
+        <textarea id="request-body" rows="10"></textarea>
+      </div>
+    </div>
+
+    <div id="response-panel">
+      <div class="panel-header">
+        <span>响应 <span id="response-status"></span></span>
+        <button id="clear-btn">清空</button>
+      </div>
+      <div id="response-body">
+        <pre id="response-text" class="status-info">← 选择接口，点击发送</pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span id="status-time"></span>
+    <span id="status-msg"></span>
+  </div>
+</div>
+
+<script>
+  let currentMethod = 'GET';
+  let currentPath = '/healthz';
+  let currentStream = false;
+  let currentPathParams = [];
+  let abortController = null;
+
+  const baseUrlInput   = document.getElementById('base-url');
+  const requestBodyEl  = document.getElementById('request-body');
+  const responseTextEl = document.getElementById('response-text');
+  const responseStatusEl = document.getElementById('response-status');
+  const sendBtn        = document.getElementById('send-btn');
+  const displayMethod  = document.getElementById('display-method');
+  const endpointPath   = document.getElementById('endpoint-path');
+  const statusTime     = document.getElementById('status-time');
+  const statusMsg      = document.getElementById('status-msg');
+  const pathParamsSection = document.getElementById('path-params-section');
+  const pathParamsInputs  = document.getElementById('path-params-inputs');
+  const cacheToast     = document.getElementById('cache-toast');
+  const modelBar       = document.getElementById('model-bar');
+  const modelBarEmpty  = document.getElementById('model-bar-empty');
+
+  // ── 模型状态栏 ──────────────────────────────────────────────────────────────
+
+  let _lastModelBarState = '';
+
+  async function refreshModelBar() {
+    const base = baseUrlInput.value.replace(/\/$/, '');
+    try {
+      const [modelsRes, healthRes] = await Promise.all([
+        fetch(`${base}/v1/llm/models`),
+        fetch(`${base}/v1/llm/healthz`),
+      ]);
+      if (!modelsRes.ok) return;
+      const models = await modelsRes.json();
+      const health = healthRes.ok ? await healthRes.json() : {};
+      const currentModel = health.model || null;
+
+      const loaded = models.filter(m => m.status === 'loaded' || m.status === 'loading');
+      const key = JSON.stringify(loaded.map(m => m.id + m.status)) + currentModel;
+      if (key === _lastModelBarState) return;
+      _lastModelBarState = key;
+
+      // 清除旧 chip，保留 label 和 empty
+      modelBar.querySelectorAll('.model-chip').forEach(el => el.remove());
+
+      if (loaded.length === 0) {
+        modelBarEmpty.style.display = '';
+      } else {
+        modelBarEmpty.style.display = 'none';
+        loaded.forEach(m => {
+          const chip = document.createElement('div');
+          const isActive = m.id === currentModel;
+          const isLoading = m.status === 'loading';
+          chip.className = 'model-chip' + (isActive ? ' active' : '') + (isLoading ? ' loading' : '');
+          chip.innerHTML = `<span class="model-dot"></span>${m.id}`;
+          chip.title = isActive ? '当前活跃' : (isLoading ? '加载中...' : '点击切换');
+          if (!isActive && !isLoading) {
+            chip.addEventListener('click', () => switchModel(m.id));
+          }
+          modelBar.appendChild(chip);
+        });
+      }
+    } catch (_) {}
+  }
+
+  async function switchModel(model) {
+    const base = baseUrlInput.value.replace(/\/$/, '');
+    showToast(`切换到 ${model}...`, '#fbbf24');
+    const res = await fetch(`${base}/v1/llm/models/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (res.ok) {
+      showToast(`已切换到 ${model}`, '#4ade80');
+      _lastModelBarState = '';
+      await refreshModelBar();
+    } else {
+      const data = await res.json();
+      showToast(data.error?.message || '切换失败', '#f87171');
+    }
+  }
+
+  refreshModelBar();
+  setInterval(refreshModelBar, 10000);
+
+  function showToast(msg, color = '#4ade80') {
+    cacheToast.textContent = msg;
+    cacheToast.style.color = color;
+    cacheToast.style.display = 'inline';
+    setTimeout(() => { cacheToast.style.display = 'none'; }, 3000);
+  }
+
+  document.getElementById('btn-reset-db').addEventListener('click', async () => {
+    const base = baseUrlInput.value.replace(/\/$/, '');
+    const res = await fetch(`${base}/v1/admin/db`, { method: 'DELETE' });
+    const data = await res.json();
+    showToast(res.ok ? `已删除: ${data.deleted}` : data.detail, res.ok ? '#4ade80' : '#f87171');
+  });
+
+  document.getElementById('btn-clear-models').addEventListener('click', async () => {
+    const base = baseUrlInput.value.replace(/\/$/, '');
+    const res = await fetch(`${base}/v1/admin/models`, { method: 'DELETE' });
+    const data = await res.json();
+    showToast(res.ok ? `已删除 ${data.deleted.length} 个文件` : data.detail, res.ok ? '#4ade80' : '#f87171');
+  });
+
+  document.querySelectorAll('.api-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.api-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      currentMethod      = item.dataset.method;
+      currentPath        = item.dataset.path;
+      currentStream      = item.dataset.stream === 'true';
+      currentPathParams  = item.dataset.pathParams ? JSON.parse(item.dataset.pathParams) : [];
+      const paramDefaults = item.dataset.paramDefaults ? JSON.parse(item.dataset.paramDefaults) : {};
+
+      displayMethod.textContent = currentMethod;
+      displayMethod.className   = 'method ' + currentMethod;
+      endpointPath.textContent  = currentPath;
+
+      const body = item.dataset.body || '';
+      if (body) {
+        try {
+          const filled = body.replace(/__uuid__/g, Math.random().toString(36).slice(2, 8));
+          requestBodyEl.value = JSON.stringify(JSON.parse(filled), null, 2);
+        } catch { requestBodyEl.value = body; }
+      } else {
+        requestBodyEl.value = '';
+      }
+
+      if (currentPathParams.length > 0) {
+        pathParamsSection.style.display = 'block';
+        pathParamsInputs.innerHTML = '';
+        currentPathParams.forEach(p => {
+          const label = document.createElement('label');
+          label.textContent = p;
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.id = 'param-' + p;
+          input.placeholder = p;
+          input.value = paramDefaults[p] || '';
+          pathParamsInputs.appendChild(label);
+          pathParamsInputs.appendChild(input);
+        });
+      } else {
+        pathParamsSection.style.display = 'none';
+      }
+
+      responseTextEl.textContent = '← 点击发送';
+      responseTextEl.className   = 'status-info';
+      responseStatusEl.textContent = '';
+    });
+  });
+
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    responseTextEl.textContent   = '';
+    responseStatusEl.textContent = '';
+    statusMsg.textContent = '';
+    statusTime.textContent = '';
+  });
+
+  sendBtn.addEventListener('click', sendRequest);
+
+  async function sendRequest() {
+    let path = currentPath;
+    currentPathParams.forEach(p => {
+      const val = document.getElementById('param-' + p)?.value || '';
+      path = path.replace('{' + p + '}', val);
+    });
+
+    const url      = baseUrlInput.value.replace(/\/$/, '') + path;
+    const method   = currentMethod;
+    const bodyText = requestBodyEl.value.trim();
+
+    sendBtn.disabled    = true;
+    sendBtn.textContent = '发送中...';
+    responseTextEl.textContent   = '';
+    responseTextEl.className     = '';
+    responseStatusEl.textContent = '';
+
+    const start = Date.now();
+
+    try {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (method !== 'GET' && bodyText) opts.body = bodyText;
+
+      if (currentStream) {
+        abortController = new AbortController();
+        opts.signal = abortController.signal;
+        const resp = await fetch(url, opts);
+        responseStatusEl.textContent = resp.status;
+        responseStatusEl.style.color = resp.ok ? '#4ade80' : '#f87171';
+
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let text = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          responseTextEl.textContent = text;
+          responseTextEl.className   = 'stream-chunk';
+        }
+        statusMsg.textContent = `流式完成 ${Date.now() - start}ms`;
+      } else {
+        const resp    = await fetch(url, opts);
+        const elapsed = Date.now() - start;
+        responseStatusEl.textContent = resp.status;
+        responseStatusEl.style.color = resp.ok ? '#4ade80' : '#f87171';
+
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          responseTextEl.textContent = JSON.stringify(await resp.json(), null, 2);
+        } else {
+          responseTextEl.textContent = await resp.text();
+        }
+        responseTextEl.className = resp.ok ? 'status-ok' : 'status-err';
+        statusTime.textContent   = elapsed + 'ms';
+        statusMsg.textContent    = resp.ok ? 'OK' : 'Error';
+      }
+    } catch (e) {
+      responseTextEl.textContent = e.message;
+      responseTextEl.className   = 'status-err';
+      statusMsg.textContent      = 'Failed';
+    } finally {
+      sendBtn.disabled    = false;
+      sendBtn.textContent = '发送';
+    }
+  }
+</script>
+</body>
+</html>

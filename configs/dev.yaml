@@ -1,0 +1,7 @@
+# SpacemiT AI Gateway 开发环境配置
+
+app:
+  debug: true
+
+logging:
+  level: "DEBUG"

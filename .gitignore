@@ -1,0 +1,62 @@
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 测试/类型/lint 缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# 打包产物
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+.ai-provider-env/
+.spacemit-ai-gateway-env/
+
+# 项目本地标记
+.codex
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# 日志 / 临时
+*.log
+logs/
+*.pid
+.env
+.env.*
+!.env.example
+
+# 本地配置覆盖
+configs/local.yaml
+configs/*.local.yaml
+configs/ip_whitelist.txt
+
+# 内部测试记录
+real-test.md
+*.jpg
+*.png
+!frontend/img/*.png
+!frontend/console/img/*.png
+!docs/img/*.png
+*.mp4
+src/ai_provider/domains/vision/scripts/
+
+uv.lock
+CLAUDE.md
