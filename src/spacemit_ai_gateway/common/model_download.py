@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import fcntl
 import shutil
 import tarfile
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -30,20 +32,24 @@ def ensure_remote_file(path: str | Path, url: str, *, timeout_s: int = 60) -> No
         return
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("model file missing, downloading %s to %s", url, target)
-    with tempfile.NamedTemporaryFile(
-        prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent), delete=False
-    ) as tmp:
-        tmp_path = Path(tmp.name)
+    with _file_lock(target.parent / f".{target.name}.lock"):
+        if _path_ready(target):
+            return
 
-    try:
-        _download_url(url, tmp_path, timeout_s=timeout_s)
-        tmp_path.replace(target)
-    except Exception as exc:
-        tmp_path.unlink(missing_ok=True)
-        if isinstance(exc, ModelDownloadError):
-            raise
-        raise ModelDownloadError(f"failed to download {url}: {exc}") from exc
+        logger.info("model file missing, downloading %s to %s", url, target)
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent), delete=False
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+
+        try:
+            _download_url(url, tmp_path, timeout_s=timeout_s)
+            tmp_path.replace(target)
+        except Exception as exc:
+            tmp_path.unlink(missing_ok=True)
+            if isinstance(exc, ModelDownloadError):
+                raise
+            raise ModelDownloadError(f"failed to download {url}: {exc}") from exc
 
 
 def ensure_archive_model(
@@ -62,37 +68,54 @@ def ensure_archive_model(
 
     target_dir.mkdir(parents=True, exist_ok=True)
     target_dir.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(
-        "model files missing under %s (%s), downloading %s",
-        target_dir,
-        ", ".join(missing),
-        url,
-    )
 
-    with tempfile.TemporaryDirectory(
-        prefix=".model-download-", dir=str(target_dir.parent)
-    ) as tmp_name:
-        tmp_dir = Path(tmp_name)
-        archive_path = tmp_dir / archive_name
-        extract_dir = tmp_dir / "extract"
-        extract_dir.mkdir()
+    with _file_lock(target_dir.parent / f".{target_dir.name}.lock"):
+        missing = _missing_paths(target_dir, required_paths)
+        if not missing:
+            return
 
-        _download_url(url, archive_path, timeout_s=timeout_s)
-        _safe_extract_tar(archive_path, extract_dir)
-
-        source_dir = extract_dir
-        if archive_subdir:
-            subdir = extract_dir / archive_subdir
-            if subdir.is_dir():
-                source_dir = subdir
-
-        _copy_contents(source_dir, target_dir)
-
-    missing_after = _missing_paths(target_dir, required_paths)
-    if missing_after:
-        raise ModelDownloadError(
-            f"downloaded archive did not provide required files: {', '.join(missing_after)}"
+        logger.info(
+            "model files missing under %s (%s), downloading %s",
+            target_dir,
+            ", ".join(missing),
+            url,
         )
+
+        with tempfile.TemporaryDirectory(
+            prefix=".model-download-", dir=str(target_dir.parent)
+        ) as tmp_name:
+            tmp_dir = Path(tmp_name)
+            archive_path = tmp_dir / archive_name
+            extract_dir = tmp_dir / "extract"
+            extract_dir.mkdir()
+
+            _download_url(url, archive_path, timeout_s=timeout_s)
+            _safe_extract_tar(archive_path, extract_dir)
+
+            source_dir = extract_dir
+            if archive_subdir:
+                subdir = extract_dir / archive_subdir
+                if subdir.is_dir():
+                    source_dir = subdir
+
+            _copy_contents(source_dir, target_dir)
+
+        missing_after = _missing_paths(target_dir, required_paths)
+        if missing_after:
+            raise ModelDownloadError(
+                f"downloaded archive did not provide required files: {', '.join(missing_after)}"
+            )
+
+
+@contextmanager
+def _file_lock(lock_path: Path) -> Iterator[None]:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _missing_paths(base_dir: Path, relative_paths: Sequence[str]) -> list[str]:
