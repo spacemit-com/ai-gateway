@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import tarfile
+import sys
+
+from spacemit_ai_gateway.app.settings import AsrConfig, TtsConfig
+from spacemit_ai_gateway.common.model_download import (
+    ensure_archive_model,
+    ensure_remote_file,
+)
+from spacemit_ai_gateway.common.ready_state import BackendReadyState
+
+
+def test_ensure_archive_model_flattens_archive_subdir(tmp_path):
+    source_dir = tmp_path / "source" / "sensevoice"
+    source_dir.mkdir(parents=True)
+    (source_dir / "tokens.txt").write_text("tokens", encoding="utf-8")
+
+    archive_path = tmp_path / "sensevoice.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(source_dir, arcname="sensevoice")
+
+    model_dir = tmp_path / "models" / "sensevoice"
+    ensure_archive_model(
+        model_dir,
+        url=archive_path.as_uri(),
+        archive_name="sensevoice.tar.gz",
+        archive_subdir="sensevoice",
+        required_paths=("tokens.txt",),
+    )
+
+    assert (model_dir / "tokens.txt").read_text(encoding="utf-8") == "tokens"
+
+
+def test_ensure_remote_file_downloads_file_url(tmp_path):
+    source = tmp_path / "source.onnx"
+    source.write_bytes(b"model")
+
+    target = tmp_path / "models" / "target.onnx"
+    ensure_remote_file(target, source.as_uri())
+
+    assert target.read_bytes() == b"model"
+
+
+def test_speech_defaults_use_single_startup_models():
+    asr = AsrConfig()
+    tts = TtsConfig()
+
+    assert asr.backend == "sensevoice"
+    assert [model["id"] for model in asr.models] == ["sensevoice"]
+    assert tts.backend == "matcha_zh_en"
+    assert [model["id"] for model in tts.models] == ["matcha_zh_en"]
+
+
+def test_asr_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.asr.adapters import sensevoice
+
+    calls = []
+
+    def fake_ensure(model_dir, **kwargs):
+        calls.append((model_dir, kwargs))
+
+    monkeypatch.setattr(sensevoice, "_DEFAULT_MODEL_DIR", str(tmp_path / "asr" / "sensevoice"))
+    monkeypatch.setattr(sensevoice, "ensure_archive_model", fake_ensure)
+    monkeypatch.setitem(sys.modules, "spacemit_asr", None)
+
+    backend = sensevoice.SenseVoiceBackend(AsrConfig())
+
+    assert calls
+    assert calls[0][0] == tmp_path / "asr" / "sensevoice"
+    assert backend.state == BackendReadyState.DEGRADED
+
+
+def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    calls = []
+
+    def fake_ensure(backend, model_dir, configured_models):
+        calls.append((backend, model_dir, configured_models))
+
+    monkeypatch.setattr(matcha, "_DEFAULT_MODEL_DIR", str(tmp_path / "tts" / "matcha-tts"))
+    monkeypatch.setattr(matcha, "_ensure_model_assets", fake_ensure)
+    monkeypatch.setitem(sys.modules, "spacemit_tts", None)
+
+    backend = matcha.MatchaBackend(TtsConfig())
+
+    assert calls
+    assert calls[0][0] == "matcha_zh_en"
+    assert calls[0][1] == tmp_path / "tts" / "matcha-tts"
+    assert backend.state == BackendReadyState.DEGRADED

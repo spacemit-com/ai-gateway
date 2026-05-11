@@ -8,6 +8,7 @@ SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank 统一 H
 
 
 `spacemit-ai-gateway` 已发布到 SpacemiT 内部 apt 源。包内带完整的安装钩子：apt 系统依赖随 `debian/control` 的 `Depends` 字段自动解析；postinst 脚本会在 `/opt/spacemit-ai-gateway/venv` 创建虚拟环境，从 SpacemiT GitLab PyPI 拉取 `spacemit-asr/tts/vad/audio/vision` 与 `spacemit-ai-gateway` 主体；systemd 单元 `spacemit-ai-gateway.service` 由 `dh_installsystemd` 自动注册并启动。
+`.deb` 同时安装运行配置到 `/opt/spacemit-ai-gateway/configs/`，安装模型清单 schema 到 `/opt/spacemit-ai-gateway/schema/`。
 
 ```bash
 sudo apt update
@@ -100,7 +101,7 @@ python -m pip install spacemit-ai-gateway \
 
 ```bash
 python -m build --wheel
-python -m pip install dist/spacemit_ai_gateway-0.1.0-py3-none-any.whl
+python -m pip install dist/spacemit_ai_gateway-0.1.2-py3-none-any.whl
 ```
 
 ### 启动
@@ -121,13 +122,18 @@ curl -s localhost:18790/healthz | jq .
 
 ## 配置
 
-配置文件位于 `configs/`：
+配置文件位于 `configs/`。源码运行默认使用 wheel 包内置配置；`.deb` 安装后 systemd 服务显式读取
+`/opt/spacemit-ai-gateway/configs/base.yaml`，便于设备侧直接查看和调整运行配置。
 
 | 文件 | 说明 |
 |------|------|
 | `base.yaml` | 默认配置（ASR/TTS/VAD 参数、端口、鉴权等） |
 | `dev.yaml` | 开发环境覆盖 |
 | `vision/` | 视觉模型配置（YOLOv8、ArcFace、ResNet 等） |
+
+模型清单 schema 位于 `schema/`，供外部工具读取；`.deb` 安装路径为
+`/opt/spacemit-ai-gateway/schema/`。
+ASR/TTS 默认只预载 `sensevoice` 和 `matcha_zh_en`，避免启动时同时加载多个语音模型占用内存。
 
 默认使用 wheel 包内置配置，和启动所在目录无关。需要覆盖配置时，通过环境变量显式指定配置文件：
 
@@ -147,6 +153,9 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 
 | 域 | 模型目录 |
 |----|----------|
+| ASR | `~/.cache/models/asr/sensevoice` |
+| TTS | `~/.cache/models/tts/matcha-tts` |
+| VAD | `~/.cache/models/vad` |
 | LLM | `~/.cache/models/llm` |
 | Embed | `~/.cache/models/embed` |
 | Rerank | `~/.cache/models/rerank` |
@@ -273,6 +282,7 @@ spacemit-ai-gateway/
 │   ├── base.yaml
 │   ├── dev.yaml
 │   └── vision/                 # 视觉模型配置
+├── schema/                     # 模型清单 schema
 ├── src/spacemit_ai_gateway/
 │   ├── app/                    # 应用入口、生命周期、配置
 │   ├── common/                 # 共享模块（errors, sessions, task_store, lexicon_store）

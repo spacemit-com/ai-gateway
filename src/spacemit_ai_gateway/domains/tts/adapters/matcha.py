@@ -1,4 +1,7 @@
-"""Matcha TTS backend（支持 matcha_zh/matcha_en/matcha_zh_en）。"""
+"""Matcha TTS backend（支持 matcha_zh/matcha_en/matcha_zh_en）。
+
+模型缺失时先下载到 model_dir，再初始化 spacemit_tts Engine。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +13,7 @@ import numpy as np
 
 from ....app.settings import TtsConfig
 from ....common.errors import TtsBackendUnavailable, TtsInvalidText
+from ....common.model_download import ensure_archive_model, ensure_remote_file, expand_path
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo, VoiceInfo
 from .base import (
@@ -27,6 +31,48 @@ _DEFAULT_SAMPLE_RATES = {
     "matcha_zh": 22050,
     "matcha_en": 22050,
     "matcha_zh_en": 16000,
+}
+
+_DEFAULT_MODEL_DIR = "~/.cache/models/tts/matcha-tts"
+_VOCODER_22K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-22khz-univ.onnx"
+_VOCODER_16K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.onnx"
+_MODEL_ASSETS = {
+    "matcha_zh": {
+        "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-baker.tar.gz",
+        "archive_name": "matcha-icefall-zh-baker.tar.gz",
+        "required_paths": (
+            "matcha-icefall-zh-baker/model-steps-3.onnx",
+            "matcha-icefall-zh-baker/lexicon.txt",
+            "matcha-icefall-zh-baker/tokens.txt",
+            "matcha-icefall-zh-baker/dict",
+            "vocos-22khz-univ.onnx",
+        ),
+        "vocoder_name": "vocos-22khz-univ.onnx",
+        "vocoder_url": _VOCODER_22K_URL,
+    },
+    "matcha_en": {
+        "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-en_US-ljspeech.tar.gz",
+        "archive_name": "matcha-icefall-en_US-ljspeech.tar.gz",
+        "required_paths": (
+            "matcha-icefall-en_US-ljspeech/model-steps-3.onnx",
+            "matcha-icefall-en_US-ljspeech/tokens.txt",
+            "matcha-icefall-en_US-ljspeech/espeak-ng-data",
+            "vocos-22khz-univ.onnx",
+        ),
+        "vocoder_name": "vocos-22khz-univ.onnx",
+        "vocoder_url": _VOCODER_22K_URL,
+    },
+    "matcha_zh_en": {
+        "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz",
+        "archive_name": "matcha-icefall-zh-en.tar.gz",
+        "required_paths": (
+            "matcha-icefall-zh-en/model-steps-3.onnx",
+            "matcha-icefall-zh-en/vocab_tts.txt",
+            "vocos-16khz-univ.onnx",
+        ),
+        "vocoder_name": "vocos-16khz-univ.onnx",
+        "vocoder_url": _VOCODER_16K_URL,
+    },
 }
 
 
@@ -54,17 +100,26 @@ class MatchaBackend(TtsBackend):
         )
         self._state = BackendReadyState.INITIALIZING
 
+        model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
         try:
-            import spacemit_tts  # noqa: F401
-        except ImportError:
-            logger.warning("spacemit_tts not installed → TTS mock backend")
+            _ensure_model_assets(config.backend, model_dir, config.models)
+        except Exception as e:
+            logger.exception("TTS model check/download failed (%s), falling back to mock", e)
             self._mock = True
             self._state = BackendReadyState.DEGRADED
             return
 
         try:
             import spacemit_tts
+        except ImportError as e:
+            logger.warning("spacemit_tts unavailable (%s) → TTS mock backend", e)
+            self._mock = True
+            self._state = BackendReadyState.DEGRADED
+            return
+
+        try:
             engine_config = spacemit_tts.Config.preset(config.backend)
+            _set_model_dir(engine_config, model_dir)
             if config.sample_rate is not None:
                 engine_config.sample_rate = config.sample_rate
             engine_config.speed = config.speed
@@ -172,6 +227,35 @@ class MatchaBackend(TtsBackend):
 
 
 # ---------------------------------------------------------------------------
+
+def _ensure_model_assets(backend: str, model_dir, configured_models: list[dict]) -> None:
+    assets = dict(_MODEL_ASSETS[backend])
+    assets.update(_get_model_asset(configured_models, backend))
+    ensure_remote_file(model_dir / assets["vocoder_name"], assets["vocoder_url"])
+    ensure_archive_model(
+        model_dir,
+        url=assets["url"],
+        archive_name=assets["archive_name"],
+        required_paths=assets["required_paths"],
+    )
+
+
+def _get_model_asset(models: list[dict], model_id: str) -> dict:
+    for item in models:
+        if item.get("id") == model_id:
+            return {key: value for key, value in item.items() if value}
+    return {}
+
+
+def _set_model_dir(engine_config, model_dir) -> None:
+    model_dir_text = str(model_dir)
+    if hasattr(engine_config, "model_dir"):
+        engine_config.model_dir = model_dir_text
+        return
+    native_config = getattr(engine_config, "_config", None)
+    if native_config is not None and hasattr(native_config, "model_dir"):
+        native_config.model_dir = model_dir_text
+
 
 def _mock_result(text: str, sample_rate: int) -> TtsResult:
     n_samples = sample_rate  # 1 秒静音

@@ -76,6 +76,7 @@ Files:     .cursorignore
            scripts/embed/clean.sh
            scripts/llm/clean.sh
            scripts/rerank/clean.sh
+           schema/*.json
            src/spacemit_ai_gateway/__init__.py
            src/spacemit_ai_gateway/app/__init__.py
            src/spacemit_ai_gateway/app/lifespan.py
@@ -89,6 +90,7 @@ Files:     .cursorignore
            src/spacemit_ai_gateway/common/errors.py
            src/spacemit_ai_gateway/common/event_store.py
            src/spacemit_ai_gateway/common/lexicon_store.py
+           src/spacemit_ai_gateway/common/model_download.py
            src/spacemit_ai_gateway/common/port_pool.py
            src/spacemit_ai_gateway/common/ready_state.py
            src/spacemit_ai_gateway/common/schemas.py
