@@ -12,6 +12,7 @@ Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends},
  opencv-spacemit,
  espeak-ng,
+ libfftw3-single3,
  llama.cpp-tools-spacemit,
  python3-spacemit-ort,
  spacemit-onnxruntime,

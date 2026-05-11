@@ -2,7 +2,7 @@
 model_path: ~/.cache/models/vision/yolov8/yolov8n.q.onnx
 test_video: ~/.cache/assets/video/003_palace.mp4
 image_size: [640, 640]
-label_file_path: src/spacemit_ai_gateway/domains/vision/assets/labels/coco.txt
+label_file_path: spacemit_ai_gateway/domains/vision/assets/labels/coco.txt
 class: deploy.bytetrack.ByteTrackTracker
 default_params:
   conf_threshold: 0.25
@@ -12,4 +12,3 @@ default_params:
   num_threads: 3
   providers:
     - SpaceMITExecutionProvider
-

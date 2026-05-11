@@ -1,8 +1,8 @@
 """SenseVoice backend（基于 spacemit_asr SDK）。
 
-骨架期支持 mock 降级：
-- ImportError → 直接 mock
-- Engine 初始化 Exception → 降级 mock + exception 日志
+支持 mock 降级：
+- 模型缺失 → 下载到 model_dir 后初始化
+- SDK ImportError 或 Engine 初始化 Exception → 降级 mock + exception 日志
 """
 
 from __future__ import annotations
@@ -15,12 +15,22 @@ import numpy as np
 
 from ....app.settings import AsrConfig
 from ....common.errors import AsrBackendUnavailable, AsrInvalidAudio
+from ....common.model_download import ensure_archive_model, expand_path
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo
 from .base import AsrBackend, AsrEvent, AsrStreamSession, RecognitionResult
 
 logger = logging.getLogger(__name__)
 logger_bridge = logging.getLogger(f"{__name__}._Bridge")
+
+_DEFAULT_MODEL_DIR = "~/.cache/models/asr/sensevoice"
+_MODEL_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz"
+_REQUIRED_MODEL_FILES = (
+    "model_quant_optimized.onnx",
+    "tokens.txt",
+    "am.mvn",
+    "sensevoice_decoder_model.onnx",
+)
 
 
 def _lang_from_str(language: str):
@@ -45,20 +55,32 @@ class SenseVoiceBackend(AsrBackend):
         self._engine = None
         self._state = BackendReadyState.INITIALIZING
 
+        model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
+        asset = _get_model_asset(config.models, config.backend)
         try:
-            import spacemit_asr  # noqa: F401
-        except ImportError:
-            logger.warning("spacemit_asr not installed → ASR mock backend")
+            ensure_archive_model(
+                model_dir,
+                url=asset.get("url") or _MODEL_URL,
+                archive_name=asset.get("archive_name") or "sensevoice.tar.gz",
+                archive_subdir=asset.get("archive_subdir") or "sensevoice",
+                required_paths=_REQUIRED_MODEL_FILES,
+            )
+        except Exception as e:
+            logger.exception("ASR model check/download failed (%s), falling back to mock", e)
             self._mock = True
             self._state = BackendReadyState.DEGRADED
             return
 
         try:
             import spacemit_asr
-            if config.model_dir:
-                engine_config = spacemit_asr.Config(model_dir=config.model_dir)
-            else:
-                engine_config = spacemit_asr.Config()  # SDK 默认 ~/.cache/models/asr/sensevoice
+        except ImportError as e:
+            logger.warning("spacemit_asr unavailable (%s) → ASR mock backend", e)
+            self._mock = True
+            self._state = BackendReadyState.DEGRADED
+            return
+
+        try:
+            engine_config = spacemit_asr.Config(model_dir=str(model_dir))
             engine_config.language = _lang_from_str(config.language)
             engine_config.punctuation_enabled = config.punctuation
             engine_config.provider = config.provider
@@ -178,6 +200,13 @@ class SenseVoiceBackend(AsrBackend):
 # ------------------------------------------------------------
 # Mock helpers
 # ------------------------------------------------------------
+
+def _get_model_asset(models: list[dict], model_id: str) -> dict:
+    for item in models:
+        if item.get("id") == model_id:
+            return item
+    return {}
+
 
 def _mock_result(audio: bytes, sample_rate: int, language: str) -> RecognitionResult:
     duration_ms = len(audio) / max(sample_rate, 1) / 2 * 1000  # 16-bit PCM 估算

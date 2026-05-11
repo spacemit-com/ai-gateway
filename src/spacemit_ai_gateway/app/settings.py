@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings
 
 class AppConfig(BaseModel):
     name: str = "SpacemiT AI Gateway"
-    version: str = "0.1.0"
+    version: str = "0.1.2"
     host: str = "0.0.0.0"
     port: int = 18790
     debug: bool = False
@@ -47,10 +47,22 @@ class AsrStreamConfig(BaseModel):
     partial_results: bool = True
 
 
+def _default_asr_models() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "sensevoice",
+            "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz",
+            "archive_name": "sensevoice.tar.gz",
+            "archive_subdir": "sensevoice",
+        }
+    ]
+
+
 class AsrConfig(BaseModel):
     backend: str = "sensevoice"
     backends: Optional[list[str]] = None
     model_dir: Optional[str] = None
+    models: list[dict[str, Any]] = Field(default_factory=_default_asr_models)
     language: str = "zh"
     punctuation: bool = True
     provider: str = "spacemit"
@@ -64,10 +76,25 @@ class TtsStreamConfig(BaseModel):
     event_queue_size: int = 64
 
 
+def _default_tts_models() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "matcha_zh_en",
+            "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/"
+            "matcha-icefall-zh-en.tar.gz",
+            "archive_name": "matcha-icefall-zh-en.tar.gz",
+            "vocoder_name": "vocos-16khz-univ.onnx",
+            "vocoder_url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/"
+            "vocos-16khz-univ.onnx",
+        },
+    ]
+
+
 class TtsConfig(BaseModel):
-    backend: str = "matcha_zh"
+    backend: str = "matcha_zh_en"
     backends: Optional[list[str]] = None
     model_dir: Optional[str] = None
+    models: list[dict[str, Any]] = Field(default_factory=_default_tts_models)
     speed: float = 1.0
     volume: float = 50.0
     pitch: float = 1.0
