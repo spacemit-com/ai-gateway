@@ -88,13 +88,34 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         await self._autoload_default_model()
 
     async def _reset_stale_status(self) -> None:
-        """重启后将 loading/loaded 重置为 downloaded（旧进程已死）。"""
-        result = await self._db.execute(
-            "UPDATE models SET status=? WHERE status IN (?, ?) AND source_type != 'remote'",
-            (ModelStatus.DOWNLOADED, ModelStatus.LOADING, ModelStatus.LOADED),
-        )
-        if result.rowcount:
-            logger.info("[startup] reset %d stale model(s) from loading/loaded → downloaded", result.rowcount)
+        """重启后清理 loading/loaded 状态（旧进程已死）。"""
+        async with self._db.execute(
+            "SELECT id, local_path FROM models WHERE status IN (?, ?) AND source_type != 'remote'",
+            (ModelStatus.LOADING, ModelStatus.LOADED),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        downloaded = 0
+        available = 0
+        for row in rows:
+            local_path = row["local_path"]
+            if local_path and Path(local_path).exists():
+                await self._db.execute(
+                    "UPDATE models SET status=? WHERE id=?",
+                    (ModelStatus.DOWNLOADED, row["id"]),
+                )
+                downloaded += 1
+            else:
+                await self._reset_missing_local_file(row["id"], commit=False)
+                available += 1
+
+        if rows:
+            logger.info(
+                "[startup] reset %d stale model(s): %d downloaded, %d available",
+                len(rows),
+                downloaded,
+                available,
+            )
         await self._db.commit()
 
     async def _autoload_default_model(self) -> None:
@@ -261,6 +282,14 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             await self._db.execute("UPDATE models SET status=? WHERE id=?", (status, model))
         await self._db.commit()
 
+    async def _reset_missing_local_file(self, model: str, commit: bool = True) -> None:
+        await self._db.execute(
+            "UPDATE models SET status=?, local_path=NULL, download_progress=0 WHERE id=?",
+            (ModelStatus.AVAILABLE, model),
+        )
+        if commit:
+            await self._db.commit()
+
     async def _download(self, model: str, url: str, dest: Path) -> None:
         await self._set_status(model, ModelStatus.DOWNLOADING, 0.0)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -365,14 +394,18 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             elif status not in (ModelStatus.DOWNLOADED, ModelStatus.LOADED):
                 raise ValueError(f"Model '{model}' is in unexpected status: {status}")
 
-            # 检查文件是否存在
-            if local_path and not Path(local_path).exists():
-                logger.warning("Model file not found: %s, resetting status to available", local_path)
-                await self._db.execute(
-                    "UPDATE models SET status=?, local_path=NULL, download_progress=0 WHERE id=?",
-                    (ModelStatus.AVAILABLE, model),
+        if source_type != "remote":
+            if not local_path:
+                logger.warning("Model '%s' has no local file path, resetting status to available", model)
+                await self._reset_missing_local_file(model)
+                raise ValueError(
+                    f"Model '{model}' has no local file path. "
+                    "Status has been reset to 'available'. Please download it again."
                 )
-                await self._db.commit()
+
+            if not Path(local_path).exists():
+                logger.warning("Model file not found: %s, resetting status to available", local_path)
+                await self._reset_missing_local_file(model)
                 raise ValueError(
                     f"Model '{model}' file not found at {local_path}. "
                     "Status has been reset to 'available'. Please download it again."
@@ -408,8 +441,17 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if self._current_model == model:
             self._current_model = None
             self._current_source_type = None
-        target_status = ModelStatus.AVAILABLE if row["source_type"] == "remote" else ModelStatus.DOWNLOADED
-        await self._set_status(model, target_status)
+        if row["source_type"] == "remote":
+            await self._set_status(model, ModelStatus.AVAILABLE)
+            return
+
+        local_path = row.get("local_path")
+        if local_path and Path(local_path).exists():
+            await self._set_status(model, ModelStatus.DOWNLOADED)
+            return
+
+        logger.warning("Model '%s' unloaded without a valid local file, resetting status to available", model)
+        await self._reset_missing_local_file(model)
 
     async def deregister(self, model: str) -> None:
         row = await self._get_model(model)
