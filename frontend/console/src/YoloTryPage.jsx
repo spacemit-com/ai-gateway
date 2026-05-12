@@ -13,6 +13,7 @@ function YoloTryPage({ model, onBack }) {
   const [imgSize, setImgSize] = useStateY({ w: 1, h: 1, renderedW: 1, renderedH: 1 });
   const [loadError, setLoadError] = useStateY('');
   const [modelReady, setModelReady] = useStateY(model.status === 'ready');
+  const backendModelId = window.visionBackendModelId ? window.visionBackendModelId(model.id) : model.id;
 
   useEffectY(() => {
     const s = window.pageStateStore?.load('yolo', model.id);
@@ -28,7 +29,7 @@ function YoloTryPage({ model, onBack }) {
   useEffectY(() => {
     const unloadOthers = async () => {
       const modelsResp = await visionApi.listModels();
-      const loaded = (modelsResp.data || modelsResp || []).filter(m => m.status === 'ready' && m.model_id !== model.id);
+      const loaded = (modelsResp.data || modelsResp || []).filter(m => m.status === 'ready' && m.model_id !== backendModelId);
       for (const m of loaded) await visionApi.unloadModel(m.model_id).catch(() => {});
     };
 
@@ -36,17 +37,17 @@ function YoloTryPage({ model, onBack }) {
       setLoadError(t('模型加载中…'));
       await unloadOthers();
       try {
-        const res = await visionApi.loadModel(model.id);
+        const res = await visionApi.loadModel(backendModelId);
         if (res && res.loaded === false) {
           const reason = (res.engine_state && res.engine_state.error_message) || t('后端加载失败');
           setLoadError(t('模型加载失败') + ': ' + reason);
           return;
         }
-        await visionApi.switchModel(model.id);
+        await visionApi.switchModel(backendModelId);
         setLoadError(''); setModelReady(true);
       } catch (e) {
         if (e.message && e.message.includes('409')) {
-          await visionApi.switchModel(model.id).catch(() => {});
+          await visionApi.switchModel(backendModelId).catch(() => {});
           setLoadError(''); setModelReady(true);
         } else {
           setLoadError(t('模型加载失败') + ': ' + e.message);
@@ -57,7 +58,7 @@ function YoloTryPage({ model, onBack }) {
     if (model.status !== 'ready') {
       loadCurrentModel();
     } else {
-      visionApi.switchModel(model.id).catch(() => {});
+      visionApi.switchModel(backendModelId).catch(() => {});
     }
   }, []);
 
