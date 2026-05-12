@@ -1145,3 +1145,37 @@ def test_load_missing_file_resets_status(client, server):
     models = {m["id"]: m for m in r.json()}
     assert models[model_id]["status"] == "available"
     assert models[model_id]["local_path"] is None
+
+
+def test_load_missing_local_path_resets_status(client, server):
+    """load 时如果 DB 中 local_path 为空，应回退状态而不是触发 500。"""
+    import sqlite3
+
+    db_path = server["db_path"]
+    uid = uuid.uuid4().hex[:8]
+    model_id = f"test-missing-path-{uid}"
+
+    r = client.post("/v1/llm/models/register", json={
+        "model": model_id,
+        "source_type": "local_url",
+        "url": "https://example.com/test.gguf",
+    })
+    assert_ok(r)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE models SET status=?, local_path=NULL WHERE id=?",
+        ("downloaded", model_id),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.post("/v1/llm/models/load", json={"model": model_id})
+    assert_err(r, 400)
+    assert "no local file path" in r.json()["message"].lower()
+
+    r = client.get("/v1/llm/models")
+    assert_ok(r)
+    models = {m["id"]: m for m in r.json()}
+    assert models[model_id]["status"] == "available"
+    assert models[model_id]["local_path"] is None
