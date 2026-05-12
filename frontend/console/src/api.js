@@ -174,8 +174,14 @@ async function visionRequest(base, path, opts = {}) {
   return raw && raw.data !== undefined ? raw.data : raw;
 }
 
+function visionModelList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
 window.visionApi = {
-  listModels:   () => visionRequest(API_BASES.vision, '/v1/vision/models'),
+  listModels:   () => visionRequest(API_BASES.vision, '/v1/vision/models').then(visionModelList),
   stats:        () => visionRequest(API_BASES.vision, '/v1/vision/stats'),
   health:       () => visionRequest(API_BASES.vision, '/v1/vision/healthz'),
   getParams:    () => visionRequest(API_BASES.vision, '/v1/vision/params'),

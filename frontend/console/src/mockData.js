@@ -214,6 +214,25 @@ window.MODEL_CATALOG = {
   ],
 };
 
+const VISION_MODEL_ALIASES = {
+  yolov8: 'yolov8n',
+  yolov11: 'yolov11n',
+  'yolov8-pose': 'yolov8n-pose',
+  'yolov8-seg': 'yolov8n-seg',
+};
+
+function visionCanonicalId(id) {
+  return VISION_MODEL_ALIASES[id] || id;
+}
+
+function visionCatalogMeta(id) {
+  const catalog = window.MODEL_CATALOG?.vision || [];
+  const exact = catalog.find(m => m.id === id);
+  if (exact) return exact;
+  const canonical = visionCanonicalId(id);
+  return catalog.find(m => m.id === canonical) || null;
+}
+
 // 从后端拉取真实模型列表，覆盖静态数据
 window.initModelCatalog = async function() {
   const { asrApi, ttsApi, vadApi, visionApi, llmApi } = window;
@@ -285,25 +304,31 @@ window.initModelCatalog = async function() {
     };
     const buildVisionDesc = (caps) => caps.map(c => visionDescMap[c] || c).join(' + ') || 'Vision';
 
-    const visionBackendIds = new Set();
     const visionList = visionModels.map(m => {
-      visionBackendIds.add(m.model_id);
-      const caps = m.capabilities || [];
+      const modelId = m.model_id || m.id;
+      if (!modelId) return null;
+      const meta = visionCatalogMeta(modelId);
+      const caps = (meta?.capabilities?.length ? meta.capabilities : m.capabilities) || [];
       let domain = 'vision';
-      if (caps.includes('vlm') || m.model_id.toLowerCase().includes('vl')) domain = 'vlm';
+      if (meta?.domain) domain = meta.domain;
+      else if (caps.includes('vlm') || modelId.toLowerCase().includes('vl')) domain = 'vlm';
       return {
-        id: m.model_id, name: m.model_id, icon: 'eye', domain,
+        ...(meta || {}),
+        id: modelId,
+        name: meta?.name || modelId,
+        icon: meta?.icon || 'eye',
+        domain,
         capabilities: caps,
-        desc: domain === 'vlm' ? '视觉语言模型' : buildVisionDesc(caps),
-        meta: [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)], ['后端', m.backend || '-']],
+        desc: meta?.desc || (domain === 'vlm' ? '视觉语言模型' : buildVisionDesc(caps)),
+        meta: [
+          ...(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
+          ['后端', m.backend || '-'],
+        ],
         status: m.status === 'ready' ? 'ready' : 'idle', calls: 0, latencyMs: 0,
       };
-    });
-    const staticVision = (window.MODEL_CATALOG.vision || []).filter(
-      m => !visionBackendIds.has(m.id)
-    );
+    }).filter(Boolean);
     if (visionList.length > 0) {
-      window.MODEL_CATALOG = { ...window.MODEL_CATALOG, vision: [...visionList, ...staticVision] };
+      window.MODEL_CATALOG = { ...window.MODEL_CATALOG, vision: visionList };
     }
 
     // LLM models
