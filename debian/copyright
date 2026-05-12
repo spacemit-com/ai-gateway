@@ -16,10 +16,10 @@ Files:     .cursorignore
            configs/vision/emotion.yaml
            configs/vision/ocsort.yaml
            configs/vision/resnet50.yaml
+           configs/vision/yolov11m.yaml
            configs/vision/yolov11n.yaml
            configs/vision/yolov11s.yaml
            configs/vision/yolov5-face.yaml
-           configs/vision/yolov5.yaml
            configs/vision/yolov5_gesture.yaml
            configs/vision/yolov8m-pose.yaml
            configs/vision/yolov8m-seg.yaml
@@ -110,10 +110,10 @@ Files:     .cursorignore
            src/spacemit_ai_gateway/configs/vision/emotion.yaml
            src/spacemit_ai_gateway/configs/vision/ocsort.yaml
            src/spacemit_ai_gateway/configs/vision/resnet50.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov11m.yaml
            src/spacemit_ai_gateway/configs/vision/yolov11n.yaml
            src/spacemit_ai_gateway/configs/vision/yolov11s.yaml
            src/spacemit_ai_gateway/configs/vision/yolov5-face.yaml
-           src/spacemit_ai_gateway/configs/vision/yolov5.yaml
            src/spacemit_ai_gateway/configs/vision/yolov5_gesture.yaml
            src/spacemit_ai_gateway/configs/vision/yolov8m-pose.yaml
            src/spacemit_ai_gateway/configs/vision/yolov8m-seg.yaml

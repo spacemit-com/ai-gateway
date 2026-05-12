@@ -56,6 +56,11 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
         "caps": ["detect"],
         "models": [{"url": f"{_BASE}/yolov11/yolo11s.q.onnx", "dest": "~/.cache/models/vision/yolov11/yolo11s.q.onnx"}],
     },
+    "yolov11m": {
+        "config": "configs/vision/yolov11m.yaml",
+        "caps": ["detect"],
+        "models": [{"url": f"{_BASE}/yolov11/yolo11m.q.onnx", "dest": "~/.cache/models/vision/yolov11/yolo11m.q.onnx"}],
+    },
     "yolov5-face": {
         "config": "configs/vision/yolov5-face.yaml",
         "caps": ["detect"],
