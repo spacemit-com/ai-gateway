@@ -206,6 +206,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 352.1162109375,
           "score": 0.916929304599762,
           "label": 0,
+          "label_name": "person",
           "track_id": -1
         },
         {
@@ -215,6 +216,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 371.11322021484375,
           "score": 0.916929304599762,
           "label": 0,
+          "label_name": "person",
           "track_id": -1
         },
         {
@@ -224,6 +226,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 370.5806884765625,
           "score": 0.6867536306381226,
           "label": 33,
+          "label_name": "kite",
           "track_id": -1
         }
       ],
@@ -277,6 +280,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 352.1162109375,
           "score": 0.916929304599762,
           "label": 0,
+          "label_name": "person",
           "track_id": -1
         },
         {
@@ -286,6 +290,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 371.11322021484375,
           "score": 0.916929304599762,
           "label": 0,
+          "label_name": "person",
           "track_id": -1
         },
         {
@@ -295,6 +300,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
           "y2": 370.5806884765625,
           "score": 0.6867536306381226,
           "label": 33,
+          "label_name": "kite",
           "track_id": -1
         }
       ],

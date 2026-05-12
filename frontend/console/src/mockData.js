@@ -72,6 +72,13 @@ window.MODEL_CATALOG = {
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
+      id: 'yolov11m', name: 'YOLOv11m', icon: 'eye', domain: 'vision',
+      capabilities: ['detect'],
+      desc: 'YOLO11 Medium 目标检测。',
+      meta: [['模型类型', '目标检测'], ['精度', 'INT8']],
+      status: 'idle', calls: 0, latencyMs: 0,
+    },
+    {
       id: 'yolov8n', name: 'YOLOv8n', icon: 'eye', domain: 'vision',
       capabilities: ['detect'],
       desc: 'YOLOv8 Nano 目标检测，适合嵌入式部署。',

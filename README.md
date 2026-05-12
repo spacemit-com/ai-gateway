@@ -129,7 +129,7 @@ curl -s localhost:18790/healthz | jq .
 |------|------|
 | `base.yaml` | 默认配置（ASR/TTS/VAD 参数、端口、鉴权等） |
 | `dev.yaml` | 开发环境覆盖 |
-| `vision/` | 视觉模型 YAML（`model_id` 与文件名一致）：YOLOv8/YOLOv11 的 n/s/m 及 `-pose`/`-seg` 变体、YOLOv5、ResNet、情绪、ArcFace、ByteTrack、OC-SORT 等 |
+| `vision/` | 视觉模型 YAML（`model_id` 与文件名一致）：YOLOv8/YOLOv11 的 n/s/m 及 `-pose`/`-seg` 变体、YOLOv5 人脸/手势、ResNet、情绪、ArcFace、ByteTrack、OC-SORT 等 |
 
 模型清单 schema 位于 `schema/`，供外部工具读取；`.deb` 安装路径为
 `/opt/spacemit-ai-gateway/schema/`。
@@ -341,7 +341,7 @@ spacemit-ai-gateway/
 pytest tests/
 
 # K3 真机测试记录
-# 见 docs/speech/testing.md、docs/llm/testing.md、docs/embed/testing.md、docs/rerank/testing.md
+# 见 docs/speech/testing.md、docs/vision/testing.md、docs/llm/testing.md、docs/embed/testing.md、docs/rerank/testing.md
 ```
 
 ## 功能概览
@@ -435,7 +435,7 @@ pytest tests/
 | 运维 | GET/PATCH | `/engine` | 引擎配置 |
 | 运维 | GET | `/stats` | 性能指标 |
 
-**预置模型**：`model_id` 与 `configs/vision/<model_id>.yaml` 对应；内置快捷加载含 `yolov8n`/`yolov8s`/`yolov8m`、`yolov8n-pose`…`yolov8m-pose`、`yolov8n-seg`…`yolov8m-seg`、`yolov11n`/`yolov11s`、`yolov5-face`、`yolov5-gesture`、`resnet50`、`emotion`、`arcface`、`bytetrack`、`ocsort`，以及目录内其余 YAML 自动发现（如 `yolov5`）。
+**预置模型**：`model_id` 与 `configs/vision/<model_id>.yaml` 对应；内置快捷加载含 `yolov8n`/`yolov8s`/`yolov8m`、`yolov8n-pose`…`yolov8m-pose`、`yolov8n-seg`…`yolov8m-seg`、`yolov11n`/`yolov11s`/`yolov11m`、`yolov5-face`、`yolov5-gesture`、`resnet50`、`emotion`、`arcface`、`bytetrack`、`ocsort`，以及目录内其余 YAML 自动发现。
 
 ### LLM 大语言模型 (`/v1/llm`)
 
@@ -520,7 +520,7 @@ ASR / TTS / VAD / Vision / LLM / Embed / Rerank 均支持多后端，可通过 `
 - **ASR**: `sensevoice`（默认）、`qwen3-asr`
 - **TTS**: `matcha_zh`（默认）、`matcha_en`、`matcha_zh_en`、`kokoro`
 - **VAD**: `silero`（默认）
-- **Vision**: 多组 `configs/vision/*.yaml`（YOLOv8/v11 多档位与 pose/seg、YOLOv5、ResNet、跟踪等），通过 `model_id` / `models/load` 管理；真机步骤见 `docs/vision/testing.md`
+- **Vision**: 多组 `configs/vision/*.yaml`（YOLOv8/v11 多档位与 pose/seg、YOLOv5 人脸/手势、ResNet、跟踪等），通过 `model_id` / `models/load` 管理；真机步骤见 `docs/vision/testing.md`
 - **LLM**: 16 个预设 GGUF 模型（Qwen3/3.5、Qwen2.5、DeepSeek、GLM 等），支持运行时注册远程 API 或本地模型
 - **Embed**: 5 个预设 GGUF 嵌入模型（BGE、Jina、Nomic、Qwen3 Embedding），支持运行时注册远程 API 或本地模型
 - **Rerank**: 2 个预设 GGUF 重排序模型（BGE Reranker、Qwen3 Reranker），支持运行时注册远程 API 或本地模型
