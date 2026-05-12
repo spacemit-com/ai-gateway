@@ -108,8 +108,8 @@ curl -s localhost:18790/v1/vision/models | jq .
 curl -s -X POST localhost:18790/v1/vision/models/load \
     -H 'Content-Type: application/json' \
     -d '{
-      "model_id":"yolov8",
-      "config_path":"configs/vision/yolov8.yaml",
+      "model_id":"yolov8n",
+      "config_path":"configs/vision/yolov8n.yaml",
       "lazy_load":false
     }' | jq .
 ```
@@ -121,11 +121,11 @@ curl -s -X POST localhost:18790/v1/vision/models/load \
   "request_id": "680b508c-12f1-4f85-b146-15e32fa9b659",
   "data": {
     "loaded": true,
-    "model_id": "yolov8",
+    "model_id": "yolov8n",
     "engine_state": {
       "backend": "native",
       "status": "ready",
-      "config_path": "/home/user/code/open/spacemit-ai-gateway/configs/vision/yolov8.yaml"
+      "config_path": "/home/user/code/open/spacemit-ai-gateway/configs/vision/yolov8n.yaml"
     }
   }
 }
@@ -137,7 +137,7 @@ curl -s -X POST localhost:18790/v1/vision/models/load \
 ```bash
 curl -s -X POST localhost:18790/v1/vision/models/switch \
     -H 'Content-Type: application/json' \
-    -d '{"model_id":"yolov8"}' | jq .
+    -d '{"model_id":"yolov8n"}' | jq .
 ```
 
 ```json
@@ -147,7 +147,7 @@ curl -s -X POST localhost:18790/v1/vision/models/switch \
   "request_id": "ff0e3066-4b6a-433a-b3b4-abd5e7e00e83",
   "data": {
     "switched": true,
-    "default_model_id": "yolov8",
+    "default_model_id": "yolov8n",
     "default_model_group": null,
     "effective_scope": "new_requests_only"
   }
@@ -159,7 +159,7 @@ curl -s -X POST localhost:18790/v1/vision/models/switch \
 ```bash
 curl -s -X POST localhost:18790/v1/vision/models/unload \
     -H 'Content-Type: application/json' \
-    -d '{"model_id":"yolov8"}' | jq .
+    -d '{"model_id":"yolov8n"}' | jq .
 ```
 
 ```json
@@ -169,7 +169,7 @@ curl -s -X POST localhost:18790/v1/vision/models/unload \
   "request_id": "4cdbab3c-53e3-4029-a373-b2043fd26cd4",
   "data": {
     "unloaded": true,
-    "model_id": "yolov8"
+    "model_id": "yolov8n"
   }
 }
 
@@ -185,7 +185,7 @@ curl -s -X POST localhost:18790/v1/vision/models/unload \
 curl -s -X POST localhost:18790/v1/vision/inference \
     -F file=@/tmp/vision_test.jpg \
     -F 'tasks=["detect"]' \
-    -F model_id=yolov8 \
+    -F model_id=yolov8n \
     -F render=true \
     -F render_mode=overlay | jq .
 ```
@@ -196,7 +196,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
   "message": "ok",
   "request_id": "91680b91-6ab4-4891-bae7-0c097839fe48",
   "data": {
-    "model_id": "yolov8",
+    "model_id": "yolov8n",
     "results": {
       "detect": [
         {
@@ -256,7 +256,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
     -H 'Content-Type: application/json' \
     -d '{
       "tasks":["detect"],
-      "model_id":"yolov8",
+      "model_id":"yolov8n",
       "handle":"/tmp/vision_test.jpg"
     }' | jq .
 ```
@@ -267,7 +267,7 @@ curl -s -X POST localhost:18790/v1/vision/inference \
   "message": "ok",
   "request_id": "15880a2a-c1eb-4e9e-9f9e-93d721f22d3a",
   "data": {
-    "model_id": "yolov8",
+    "model_id": "yolov8n",
     "results": {
       "detect": [
         {
@@ -404,7 +404,7 @@ curl -s -X POST localhost:18790/v1/vision/jobs \
     -d '{
       "input_uri":"/tmp/vision_test.mp4",
       "tasks":["detect"],
-      "model_id":"yolov8",
+      "model_id":"yolov8n",
       "render":true,
       "render_mode":"overlay",
       "frame_sample_rate":1
@@ -490,7 +490,7 @@ async def main():
     async with websockets.connect(WS_URL, max_size=50 * 1024 * 1024) as ws:
         await ws.send(json.dumps({
             "signal": "start",
-            "model_id": "yolov8",
+            "model_id": "yolov8n",
             "fps_limit": 15,
             "priority": 1
         }))
@@ -513,7 +513,7 @@ python /tmp/vision_ws.py
 ```
 
 ```json
-{"event":"ready","stream_id":"vision_stream_60b30c1ade09","params":{"model_group":"yolov8","fps_limit":15,"priority":"1"}}
+{"event":"ready","stream_id":"vision_stream_60b30c1ade09","params":{"model_group":"yolov8n","fps_limit":15,"priority":"1"}}
 {"event":"frame_result","stream_id":"vision_stream_60b30c1ade09","timestamp_ms":1776770106119,"detections":[{"x1":-0.00375211238861084,"y1":113.69255828857422,"x2":84.96481323242188,"y2":351.9652099609375,"score":0.916929304599762,"label":0,"track_id":-1},{"x1":231.41351318359375,"y1":122.68199920654297,"x2":315.6662902832031,"y2":371.73138427734375,"score":0.8942890763282776,"label":0,"track_id":-1},{"x1":66.40115356445312,"y1":167.8114471435547,"x2":247.86341857910156,"y2":370.876220703125,"score":0.6301530599594116,"label":33,"track_id":-1}],"timing":{"preprocess_ms":2.902962,"model_infer_ms":18.299026,"postprocess_ms":0.397126,"detect_ms":null,"track_ms":null,"embedding_ms":null,"sequence_ms":null,"draw_ms":null,"infer_ms":21.606947}}
 {"event":"stream_end","stream_id":"vision_stream_60b30c1ade09"}
 

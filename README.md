@@ -129,7 +129,7 @@ curl -s localhost:18790/healthz | jq .
 |------|------|
 | `base.yaml` | 默认配置（ASR/TTS/VAD 参数、端口、鉴权等） |
 | `dev.yaml` | 开发环境覆盖 |
-| `vision/` | 视觉模型配置（YOLOv8、ArcFace、ResNet 等） |
+| `vision/` | 视觉模型 YAML（`model_id` 与文件名一致）：YOLOv8/YOLOv11 的 n/s/m 及 `-pose`/`-seg` 变体、YOLOv5、ResNet、情绪、ArcFace、ByteTrack、OC-SORT 等 |
 
 模型清单 schema 位于 `schema/`，供外部工具读取；`.deb` 安装路径为
 `/opt/spacemit-ai-gateway/schema/`。
@@ -328,7 +328,7 @@ spacemit-ai-gateway/
 | TTS | Matcha ZH | HTTP `/v1/tts/synthesize` | `threads=1` | 生成 3.32s 音频 | 处理 1.56s, RTF 0.47 |
 | TTS | Matcha ZH | WS `/v1/tts/stream` | `threads=1` | 生成 4.56s 音频 | 处理 2.17s, RTF 0.48 |
 | VAD | Silero VAD | `vad_simple_demo` | `threads=1` | 224.00ms 音频 | 处理 6.339ms, RTF 0.0283 |
-| Vision | YOLOv8 detect | `/v1/vision/inference` / `/stats` | `ai_core_group=cluster0`, `threads=4` | 640x640 图像 | `infer_ms=22.82`, 约 43.8 FPS |
+| Vision | YOLOv8n detect | `/v1/vision/inference` / `/stats` | `ai_core_group=cluster0`, `threads=4` | 640x640 图像 | `infer_ms=22.82`, 约 43.8 FPS |
 | LLM | Qwen2.5-0.5B Q4_0 | `llama-bench` | `threads=4` | `pp512`, `tg128` | PP 155.61 tok/s, TG 43.71 tok/s |
 | LLM | Qwen3-0.6B Q4_0 | `llama-bench` | `threads=4` | `pp512`, `tg128` | PP 108.81 tok/s, TG 31.74 tok/s |
 | LLM | Qwen3.5-0.8B Q4_0 | `llama-bench` | `threads=4` | `pp512`, `tg128` | PP 40.55 tok/s, TG 23.38 tok/s |
@@ -435,7 +435,7 @@ pytest tests/
 | 运维 | GET/PATCH | `/engine` | 引擎配置 |
 | 运维 | GET | `/stats` | 性能指标 |
 
-**预置模型**：yolov8、yolov11、yolov5-face、yolov5-gesture、yolov8-pose、yolov8-seg、resnet50、emotion、arcface、bytetrack、ocsort
+**预置模型**：`model_id` 与 `configs/vision/<model_id>.yaml` 对应；内置快捷加载含 `yolov8n`/`yolov8s`/`yolov8m`、`yolov8n-pose`…`yolov8m-pose`、`yolov8n-seg`…`yolov8m-seg`、`yolov11n`/`yolov11s`、`yolov5-face`、`yolov5-gesture`、`resnet50`、`emotion`、`arcface`、`bytetrack`、`ocsort`，以及目录内其余 YAML 自动发现（如 `yolov5`）。
 
 ### LLM 大语言模型 (`/v1/llm`)
 
@@ -520,7 +520,7 @@ ASR / TTS / VAD / Vision / LLM / Embed / Rerank 均支持多后端，可通过 `
 - **ASR**: `sensevoice`（默认）、`qwen3-asr`
 - **TTS**: `matcha_zh`（默认）、`matcha_en`、`matcha_zh_en`、`kokoro`
 - **VAD**: `silero`（默认）
-- **Vision**: 11 个预置模型（YOLOv8/v11/v5、ResNet50、ArcFace、ByteTrack、OC-SORT 等），通过 `configs/vision/*.yaml` 配置
+- **Vision**: 多组 `configs/vision/*.yaml`（YOLOv8/v11 多档位与 pose/seg、YOLOv5、ResNet、跟踪等），通过 `model_id` / `models/load` 管理；真机步骤见 `docs/vision/testing.md`
 - **LLM**: 16 个预设 GGUF 模型（Qwen3/3.5、Qwen2.5、DeepSeek、GLM 等），支持运行时注册远程 API 或本地模型
 - **Embed**: 5 个预设 GGUF 嵌入模型（BGE、Jina、Nomic、Qwen3 Embedding），支持运行时注册远程 API 或本地模型
 - **Rerank**: 2 个预设 GGUF 重排序模型（BGE Reranker、Qwen3 Reranker），支持运行时注册远程 API 或本地模型
