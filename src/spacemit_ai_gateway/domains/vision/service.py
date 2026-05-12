@@ -146,7 +146,7 @@ class VisionService:
                 elif task == "pose":
                     results.pose = self._build_poses(raw_items)
                 elif task == "segment":
-                    results.segment = self._build_segments(raw_items)
+                    results.segment = self._build_segments(raw_items, labels)
 
             timing = None
             if managed.timing_enabled:
@@ -219,7 +219,7 @@ class VisionService:
         for m in items:
             bbox = m.get("bbox", [0, 0, 0, 0])
             label_idx = int(m.get("class_id", m.get("class_idx", m.get("label", 0))))
-            label_name = m.get("class_name")
+            label_name = m.get("label_name") or m.get("class_name")
             if not label_name and labels and 0 <= label_idx < len(labels):
                 label_name = labels[label_idx]
             result.append(DetectionItem(
@@ -239,7 +239,7 @@ class VisionService:
         result = []
         for m in items:
             label_idx = int(m.get("class_id", m.get("class_idx", m.get("label", 0))))
-            label_name = m.get("class_name")
+            label_name = m.get("label_name") or m.get("class_name")
             if not label_name and labels and 0 <= label_idx < len(labels):
                 label_name = labels[label_idx]
             result.append(ClassifyItem(
@@ -325,7 +325,7 @@ class VisionService:
         return keypoints
 
     @staticmethod
-    def _build_segments(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _build_segments(items: List[Dict[str, Any]], labels: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         result = []
         for m in items:
             seg: Dict[str, Any] = {}
@@ -361,7 +361,45 @@ class VisionService:
                 seg["contour"] = m["contour"]
             if "area" in m:
                 seg["area"] = m["area"]
-            seg["class_id"] = int(m.get("class_id", m.get("class_idx", 0)))
+            label_idx, label_name = VisionService._resolve_item_label(m, labels, default=-1)
+            seg["class_id"] = label_idx
+            if label_name:
+                seg["label_name"] = label_name
             seg["score"] = float(m.get("score", m.get("confidence", 0)))
             result.append(seg)
         return result
+
+    @staticmethod
+    def _resolve_item_label(
+        item: Dict[str, Any],
+        labels: Optional[List[str]] = None,
+        *,
+        default: int = 0,
+    ) -> tuple[int, Optional[str]]:
+        raw_label = None
+        for key in ("class_id", "class_idx", "label"):
+            value = item.get(key)
+            if value is not None:
+                raw_label = value
+                break
+
+        label_name = item.get("label_name") or item.get("class_name")
+        label_idx = default
+
+        if raw_label is not None:
+            try:
+                label_idx = int(raw_label)
+            except (TypeError, ValueError):
+                raw_label_name = str(raw_label)
+                if not label_name:
+                    label_name = raw_label_name
+                if labels:
+                    try:
+                        label_idx = labels.index(raw_label_name)
+                    except ValueError:
+                        label_idx = default
+
+        if not label_name and labels and 0 <= label_idx < len(labels):
+            label_name = labels[label_idx]
+
+        return label_idx, label_name

@@ -706,7 +706,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {segments.map((seg, i) => (
                   <div key={i} className="seg-card">
                     <div className="seg-card-header">
-                      <span className="seg-card-class">Class {seg.class_id}</span>
+                      <span className="seg-card-class">{seg.label_name || `Class ${seg.class_id}`}</span>
                       <span className="seg-card-score">{(seg.score * 100).toFixed(1)}%</span>
                     </div>
                     <div className="seg-card-body">
