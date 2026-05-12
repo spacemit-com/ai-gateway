@@ -60,21 +60,21 @@ window.MODEL_CATALOG = {
     {
       id: 'yolov11n', name: 'YOLOv11n', icon: 'eye', domain: 'vision',
       capabilities: ['detect'],
-      desc: 'YOLO11 Nano 轻量目标检测。',
+      desc: 'YOLOv11 Nano 轻量目标检测。',
       meta: [['模型类型', '目标检测'], ['精度', 'INT8']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
       id: 'yolov11s', name: 'YOLOv11s', icon: 'eye', domain: 'vision',
       capabilities: ['detect'],
-      desc: 'YOLO11 Small 目标检测。',
+      desc: 'YOLOv11 Small 目标检测。',
       meta: [['模型类型', '目标检测'], ['精度', 'INT8']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
       id: 'yolov11m', name: 'YOLOv11m', icon: 'eye', domain: 'vision',
       capabilities: ['detect'],
-      desc: 'YOLO11 Medium 目标检测。',
+      desc: 'YOLOv11 Medium 目标检测。',
       meta: [['模型类型', '目标检测'], ['精度', 'INT8']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
@@ -222,7 +222,8 @@ const VISION_MODEL_ALIASES = {
 };
 
 function visionCanonicalId(id) {
-  return VISION_MODEL_ALIASES[id] || id;
+  const alias = VISION_MODEL_ALIASES[id] || id;
+  return window.visionBackendModelId ? window.visionBackendModelId(alias) : alias;
 }
 
 function visionCatalogMeta(id) {
@@ -305,9 +306,10 @@ window.initModelCatalog = async function() {
     const buildVisionDesc = (caps) => caps.map(c => visionDescMap[c] || c).join(' + ') || 'Vision';
 
     const visionList = visionModels.map(m => {
-      const modelId = m.model_id || m.id;
-      if (!modelId) return null;
-      const meta = visionCatalogMeta(modelId);
+      const rawModelId = m.model_id || m.id;
+      if (!rawModelId) return null;
+      const modelId = visionCanonicalId(rawModelId);
+      const meta = visionCatalogMeta(modelId) || visionCatalogMeta(rawModelId);
       const caps = (meta?.capabilities?.length ? meta.capabilities : m.capabilities) || [];
       let domain = 'vision';
       if (meta?.domain) domain = meta.domain;

@@ -79,11 +79,12 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
   const subtitle = caps.map(c => CAP_LABEL[c] || c).join(' + ') || 'Vision';
   const apiEndpoint = isArcface ? '/v1/vision/feature' : '/v1/vision/inference';
+  const backendModelId = window.visionBackendModelId ? window.visionBackendModelId(model.id) : model.id;
 
   useEffectV(() => {
     const unloadOthers = async () => {
       const modelsResp = await visionApi.listModels();
-      const loaded = (modelsResp.data || modelsResp || []).filter(m => m.status === 'ready' && m.model_id !== model.id);
+      const loaded = (modelsResp.data || modelsResp || []).filter(m => m.status === 'ready' && m.model_id !== backendModelId);
       for (const m of loaded) await visionApi.unloadModel(m.model_id).catch(() => {});
     };
 
@@ -92,17 +93,17 @@ function VisionTryPage({ model, onBack: _onBack }) {
       // 先卸载其他已加载的模型，释放 AI cores
       await unloadOthers();
       try {
-        const res = await visionApi.loadModel(model.id);
+        const res = await visionApi.loadModel(backendModelId);
         if (res && res.loaded === false) {
           const reason = (res.engine_state && res.engine_state.error_message) || t('后端加载失败');
           setLoadError(t('模型加载失败') + ': ' + reason);
           return;
         }
-        await visionApi.switchModel(model.id);
+        await visionApi.switchModel(backendModelId);
         setLoadError(''); setModelReady(true);
       } catch (e) {
         if (e.message && e.message.includes('409')) {
-          await visionApi.switchModel(model.id).catch(() => {});
+          await visionApi.switchModel(backendModelId).catch(() => {});
           setLoadError(''); setModelReady(true);
         } else {
           setLoadError(t('模型加载失败') + ': ' + e.message);
@@ -117,7 +118,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   useEffectV(() => {
     return () => {
       stopCamera();
-      visionApi.unloadModel(model.id).catch(() => {});
+      visionApi.unloadModel(backendModelId).catch(() => {});
     };
   }, []);
 
@@ -144,7 +145,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
   const handleBack = () => {
     stopCamera();
-    visionApi.unloadModel(model.id).catch(() => {});
+    visionApi.unloadModel(backendModelId).catch(() => {});
     _onBack();
   };
 
@@ -156,7 +157,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
       video.srcObject = stream;
       await video.play();
 
-      const wsUrl = visionApi.streamUrl() + '?model_id=' + encodeURIComponent(model.id) + '&fps_limit=' + fpsLimit;
+      const wsUrl = visionApi.streamUrl() + '?model_id=' + encodeURIComponent(backendModelId) + '&fps_limit=' + fpsLimit;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

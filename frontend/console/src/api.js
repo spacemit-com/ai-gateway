@@ -169,6 +169,17 @@ window.vadApi = {
 
 // ---------------- Vision ----------------
 // Vision API wraps responses in {code, message, data} — unwrap automatically
+const VISION_BACKEND_MODEL_ID_ALIASES = {
+  yolo11n: 'yolov11n',
+  yolo11s: 'yolov11s',
+  yolo11m: 'yolov11m',
+};
+
+function visionBackendModelId(model_id) {
+  return VISION_BACKEND_MODEL_ID_ALIASES[model_id] || model_id;
+}
+window.visionBackendModelId = visionBackendModelId;
+
 async function visionRequest(base, path, opts = {}) {
   const raw = await request(base, path, opts);
   return raw && raw.data !== undefined ? raw.data : raw;
@@ -194,7 +205,7 @@ window.visionApi = {
     const form = new FormData();
     form.append('file', imageFile);
     if (tasks) form.append('tasks', JSON.stringify(tasks));
-    const qs = model_id ? '?model_id=' + encodeURIComponent(model_id) : '';
+    const qs = model_id ? '?model_id=' + encodeURIComponent(visionBackendModelId(model_id)) : '';
     return fetch(API_BASES.vision + '/v1/vision/inference' + qs, { method: 'POST', body: form })
       .then(async r => {
         const json = await r.json();
@@ -208,7 +219,7 @@ window.visionApi = {
     form.append('file', imageFile);
     form.append('type', type);
     if (imageFileB) form.append('file_b', imageFileB);
-    const qs = model_id ? '?model_id=' + encodeURIComponent(model_id) : '';
+    const qs = model_id ? '?model_id=' + encodeURIComponent(visionBackendModelId(model_id)) : '';
     return fetch(API_BASES.vision + '/v1/vision/feature' + qs, { method: 'POST', body: form })
       .then(async r => {
         const json = await r.json();
@@ -218,13 +229,16 @@ window.visionApi = {
       .then(r => r && r.data !== undefined ? r.data : r);
   },
   loadModel:    (model_id) => visionRequest(API_BASES.vision, '/v1/vision/models/load',
-                   { method: 'POST', body: JSON.stringify({ model_id }) }),
+                   { method: 'POST', body: JSON.stringify({ model_id: visionBackendModelId(model_id) }) }),
   unloadModel:  (model_id) => visionRequest(API_BASES.vision, '/v1/vision/models/unload',
-                   { method: 'POST', body: JSON.stringify({ model_id }) }),
+                   { method: 'POST', body: JSON.stringify({ model_id: visionBackendModelId(model_id) }) }),
   switchModel:  (model_id) => visionRequest(API_BASES.vision, '/v1/vision/models/switch',
-                   { method: 'POST', body: JSON.stringify({ model_id }) }),
+                   { method: 'POST', body: JSON.stringify({ model_id: visionBackendModelId(model_id) }) }),
   createJob:    (body) => visionRequest(API_BASES.vision, '/v1/vision/jobs',
-                   { method: 'POST', body: JSON.stringify(body) }),
+                   { method: 'POST', body: JSON.stringify({
+                     ...body,
+                     model_id: body?.model_id ? visionBackendModelId(body.model_id) : body?.model_id,
+                   }) }),
   getJob:       (job_id) => visionRequest(API_BASES.vision, '/v1/vision/jobs/' + encodeURIComponent(job_id)),
   cancelJob:    (job_id) => visionRequest(API_BASES.vision, '/v1/vision/jobs/' + encodeURIComponent(job_id),
                    { method: 'DELETE' }),

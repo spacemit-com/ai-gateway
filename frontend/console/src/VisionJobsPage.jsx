@@ -30,11 +30,15 @@ function VisionJobsPage() {
     visionApi.listModels()
       .then(list => {
         const rows = Array.isArray(list) ? list : (list?.data || []);
-        setModels(rows.map(m => ({
-          id: m.model_id || m.id,
-          name: m.name || m.model_id || m.id,
-          capabilities: m.capabilities || [],
-        })).filter(m => m.id));
+        setModels(rows.map(m => {
+          const rawModelId = m.model_id || m.id;
+          const modelId = window.visionBackendModelId ? window.visionBackendModelId(rawModelId) : rawModelId;
+          return {
+            id: modelId,
+            name: m.name || rawModelId,
+            capabilities: m.capabilities || [],
+          };
+        }).filter(m => m.id));
       })
       .catch(() => {});
   }, []);
