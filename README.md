@@ -77,7 +77,7 @@ python -m pip install \
 - `python3-spacemit-ort`
 - `spacemit-onnxruntime`
 
-缺少这些系统包时，对应域会启动失败或在导入/推理时失败。例如未安装 `opencv-spacemit` 时，所有依赖 `cv2` 的代码路径（含仓库根 `test.py` 这类 ad-hoc 冒烟脚本）都无法运行；`tests/unit/` 内不触发真实后端的纯单元测试不受影响。
+缺少这些系统包时，对应域会启动失败或在导入/推理时失败。例如未安装 `opencv-spacemit` 时，所有依赖 `cv2` 的代码路径都无法运行；`tests/unit/` 内不触发真实后端的纯单元测试不受影响。
 
 如需在 SDK 环境中本地编译 model_zoo 依赖：
 
