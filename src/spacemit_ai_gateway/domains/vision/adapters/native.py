@@ -235,7 +235,7 @@ class NativeAdapter:
         if hasattr(value, "__dict__"):
             return dict(vars(value))
         keys = [
-            "label", "class_name", "class_id", "class_idx", "score", "confidence",
+            "label", "label_name", "class_name", "class_id", "class_idx", "score", "confidence",
             "bbox", "box", "x1", "y1", "x2", "y2", "track_id", "mask", "keypoints",
             "preprocess_ms", "model_infer_ms", "postprocess_ms", "detect_ms",
             "track_ms", "embedding_ms", "sequence_ms", "draw_ms", "infer_ms",
