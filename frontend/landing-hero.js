@@ -115,7 +115,7 @@
     { tag: 'TTS', cls: '',      tmpl: (n) => `matcha_zh · 合成 ${n} tokens · 22050Hz` },
     { tag: 'VAD', cls: 'info',  tmpl: (n) => `silero · 检测到 <b>${n}</b> 段语音` },
     { tag: 'VLM', cls: '',      tmpl: (n) => `qwen2.5-vl · 输入图像 ${n}x${n} · 推理完成` },
-    { tag: 'YOLO',cls: '',      tmpl: (n) => `yolov11 · 检测到 <b>${n}</b> 个目标 · INT8` },
+    { tag: 'YOLO',cls: '',      tmpl: (n) => `yolov11n · 检测到 <b>${n}</b> 个目标 · INT8` },
     { tag: 'LLM', cls: '',      tmpl: (n) => `qwen3-4b · 流式 <b>${n}</b> tok/s` },
     { tag: 'SYS', cls: 'info',  tmpl: ()  => `调度器 · 队列 0 · Matrix 负载 ${60+Math.floor(Math.random()*30)}%` },
     { tag: 'ASR', cls: 'warn',  tmpl: ()  => `qwen3-asr · 预热完成 · cold start 去除` },

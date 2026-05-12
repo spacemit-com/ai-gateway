@@ -28,7 +28,14 @@ function VisionJobsPage() {
 
   useEffectJ(() => {
     visionApi.listModels()
-      .then(list => { if (Array.isArray(list)) setModels(list); })
+      .then(list => {
+        const rows = Array.isArray(list) ? list : (list?.data || []);
+        setModels(rows.map(m => ({
+          id: m.model_id || m.id,
+          name: m.name || m.model_id || m.id,
+          capabilities: m.capabilities || [],
+        })).filter(m => m.id));
+      })
       .catch(() => {});
   }, []);
 
