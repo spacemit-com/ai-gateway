@@ -202,7 +202,6 @@ Files:     .cursorignore
            src/spacemit_ai_gateway/gateway/health.py
            src/spacemit_ai_gateway/gateway/system_stats.py
            src/spacemit_ai_gateway/py.typed
-           test.py
            tests/__init__.py
            tests/conftest.py
            tests/integration/__init__.py

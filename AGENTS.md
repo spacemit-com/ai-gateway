@@ -19,7 +19,7 @@ Use 4-space indentation, type hints, and async-first I/O patterns consistent wit
 
 ## Testing Guidelines
 
-Run `pytest tests/` before submitting broad changes. Use focused commands while iterating, such as `pytest tests/unit/`, `pytest tests/integration/`, or `pytest tests/ws/`. Name tests `test_*.py` and prefer fake backends or fixtures from `tests/conftest.py` for unit coverage. The root `test.py` is an ad-hoc Vision WebSocket smoke script against a real backend, not part of the pytest suite.
+Run `pytest tests/` before submitting broad changes. Use focused commands while iterating, such as `pytest tests/unit/`, `pytest tests/integration/`, or `pytest tests/ws/`. Name tests `test_*.py` and prefer fake backends or fixtures from `tests/conftest.py` for unit coverage.
 
 ## Commit & Pull Request Guidelines
 
