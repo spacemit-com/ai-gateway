@@ -4,8 +4,8 @@ import hashlib
 import logging
 import os
 import threading
-from dataclasses import dataclass, field
 from pathlib import Path
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
@@ -25,19 +25,36 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+
 _BASE = "https://archive.spacemit.com/spacemit-ai/model_zoo/vision"
 
 # model_id → 仓库内已知配置的映射，用于 model_id 快捷加载
 KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
-    "yolov8": {
-        "config": "configs/vision/yolov8.yaml",
+    # YOLOv8 detect variants (n/s/m)
+    "yolov8n": {
+        "config": "configs/vision/yolov8n.yaml",
         "caps": ["detect"],
         "models": [{"url": f"{_BASE}/yolov8/yolov8n.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8n.q.onnx"}],
     },
-    "yolov11": {
-        "config": "configs/vision/yolov11.yaml",
+    "yolov8s": {
+        "config": "configs/vision/yolov8s.yaml",
+        "caps": ["detect"],
+        "models": [{"url": f"{_BASE}/yolov8/yolov8s.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8s.q.onnx"}],
+    },
+    "yolov8m": {
+        "config": "configs/vision/yolov8m.yaml",
+        "caps": ["detect"],
+        "models": [{"url": f"{_BASE}/yolov8/yolov8m.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8m.q.onnx"}],
+    },
+    "yolov11n": {
+        "config": "configs/vision/yolov11n.yaml",
         "caps": ["detect"],
         "models": [{"url": f"{_BASE}/yolov11/yolo11n.q.onnx", "dest": "~/.cache/models/vision/yolov11/yolo11n.q.onnx"}],
+    },
+    "yolov11s": {
+        "config": "configs/vision/yolov11s.yaml",
+        "caps": ["detect"],
+        "models": [{"url": f"{_BASE}/yolov11/yolo11s.q.onnx", "dest": "~/.cache/models/vision/yolov11/yolo11s.q.onnx"}],
     },
     "yolov5-face": {
         "config": "configs/vision/yolov5-face.yaml",
@@ -59,8 +76,9 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
             }
         ],
     },
-    "yolov8-pose": {
-        "config": "configs/vision/yolov8_pose.yaml",
+    # YOLOv8 pose variants (n/s/m)
+    "yolov8n-pose": {
+        "config": "configs/vision/yolov8n-pose.yaml",
         "caps": ["detect", "pose"],
         "models": [
             {
@@ -69,13 +87,54 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
             }
         ],
     },
-    "yolov8-seg": {
-        "config": "configs/vision/yolov8_seg.yaml",
+    "yolov8s-pose": {
+        "config": "configs/vision/yolov8s-pose.yaml",
+        "caps": ["detect", "pose"],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8_pose/yolov8s-pose.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8_pose/yolov8s-pose.q.onnx",
+            }
+        ],
+    },
+    "yolov8m-pose": {
+        "config": "configs/vision/yolov8m-pose.yaml",
+        "caps": ["detect", "pose"],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8_pose/yolov8m-pose.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8_pose/yolov8m-pose.q.onnx",
+            }
+        ],
+    },
+    # YOLOv8 seg variants (n/s/m)
+    "yolov8n-seg": {
+        "config": "configs/vision/yolov8n-seg.yaml",
         "caps": ["detect", "segment"],
         "models": [
             {
                 "url": f"{_BASE}/yolov8_seg/yolov8n-seg.q.onnx",
                 "dest": "~/.cache/models/vision/yolov8_seg/yolov8n-seg.q.onnx",
+            }
+        ],
+    },
+    "yolov8s-seg": {
+        "config": "configs/vision/yolov8s-seg.yaml",
+        "caps": ["detect", "segment"],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8_seg/yolov8s-seg.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8_seg/yolov8s-seg.q.onnx",
+            }
+        ],
+    },
+    "yolov8m-seg": {
+        "config": "configs/vision/yolov8m-seg.yaml",
+        "caps": ["detect", "segment"],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8_seg/yolov8m-seg.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8_seg/yolov8m-seg.q.onnx",
             }
         ],
     },
@@ -124,6 +183,91 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
         ],
     },
 }
+
+
+def _infer_capabilities_from_class(class_name: str) -> List[str]:
+    """Infer model capabilities from a class string like 'deploy.yolov8_pose.YOLOv8PoseDetector'."""
+    class_lower = class_name.lower()
+
+    # Pose detection
+    if "pose" in class_lower:
+        return ["detect", "pose"]
+    # Segmentation
+    if "seg" in class_lower or "segment" in class_lower:
+        return ["detect", "segment"]
+    # Tracking
+    if "track" in class_lower or "bytetrack" in class_lower or "ocsort" in class_lower:
+        return ["detect", "track"]
+    # Embedding/face recognition
+    if "arcface" in class_lower or "embedding" in class_lower or "recogni" in class_lower:
+        return ["embedding"]
+    # Emotion classification
+    if "emotion" in class_lower:
+        return ["classify", "emotion"]
+    # General classification
+    if "classif" in class_lower or "resnet" in class_lower:
+        return ["classify"]
+    # Default: object detection
+    return ["detect"]
+
+
+def _infer_capabilities_from_yaml(yaml_path: str) -> List[str]:
+    """Load a YAML config and infer capabilities from its class field."""
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        class_name = cfg.get("class", "")
+        if class_name:
+            return _infer_capabilities_from_class(class_name)
+    except Exception:
+        pass
+    return ["detect"]
+
+
+def _scan_config_directory(config_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """Scan a config directory and return discovered models as {model_id: {config, caps}}."""
+    discovered = {}
+    if not config_dir.exists():
+        return discovered
+
+    for yaml_file in config_dir.glob("*.yaml"):
+        model_id = yaml_file.stem
+        # Skip if already in KNOWN_MODELS (explicit registration takes precedence)
+        if model_id in KNOWN_MODELS:
+            continue
+
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            class_name = cfg.get("class", "")
+            if not class_name:
+                continue
+
+            caps = _infer_capabilities_from_class(class_name)
+            # Construct relative config path
+            rel_path = f"configs/vision/{yaml_file.name}"
+            discovered[model_id] = {"config": rel_path, "caps": caps}
+        except Exception:
+            continue
+
+    return discovered
+
+
+def _get_all_known_models() -> Dict[str, Dict[str, Any]]:
+    """Return merged dict of KNOWN_MODELS + auto-discovered models from config dirs."""
+    all_models = dict(KNOWN_MODELS)
+
+    # Scan repo configs/vision/
+    repo_config_dir = _repo_root() / "configs" / "vision"
+    discovered_repo = _scan_config_directory(repo_config_dir)
+    all_models.update(discovered_repo)
+
+    # Scan package configs/vision/
+    pkg_config_dir = _package_root() / "configs" / "vision"
+    discovered_pkg = _scan_config_directory(pkg_config_dir)
+    all_models.update(discovered_pkg)
+
+    return all_models
 
 
 def _repo_root() -> Path:
@@ -286,7 +430,7 @@ def _download_file(url: str, dest: str) -> None:
 
 def _ensure_models_downloaded(model_id: str) -> None:
     """Download model files for a known model_id if they don't exist locally."""
-    known = KNOWN_MODELS.get(model_id)
+    known = _get_all_known_models().get(model_id)
     if not known or "models" not in known:
         return
     for entry in known["models"]:
@@ -425,8 +569,8 @@ class ModelRegistry:
                     continue
                 items.append(m.info)
                 loaded_ids.add(m.info.model_id)
-            # Include known but unloaded models
-            for mid, known in KNOWN_MODELS.items():
+            # Include known but unloaded models (KNOWN_MODELS + auto-discovered)
+            for mid, known in _get_all_known_models().items():
                 if mid in loaded_ids:
                     continue
                 caps = known.get("caps", [])
@@ -459,23 +603,27 @@ class ModelRegistry:
         # 先释放其他已加载模型，腾出 AI cores
         self._release_other_models(model_id)
 
-        # 解析 config_path：显式传入 > KNOWN_MODELS 查表
+        # 解析 config_path：显式传入 > KNOWN_MODELS/已扫描的 yaml 查表
+        all_known = _get_all_known_models()
         resolved_config = config_path or ""
-        known = KNOWN_MODELS.get(model_id)
+        known = all_known.get(model_id)
         if not resolved_config and known:
             resolved_config = known["config"]
         if not resolved_config:
             raise ServiceError(
                 400, ErrorCode.INVALID_ARGUMENT,
                 f"config_path is required for unknown model_id '{model_id}'. "
-                f"known models: {sorted(KNOWN_MODELS.keys())}",
+                f"known models: {sorted(all_known.keys())}",
             )
-
-        # 从 KNOWN_MODELS 获取 capabilities，或者显式传入的 config_path 给通用默认值
-        capabilities = known["caps"] if known else ["detect"]
 
         resolved_config = _resolve_config_path(resolved_config)
         runtime_config = _materialize_config_for_runtime(resolved_config)
+
+        # capabilities 来源（优先级）：已注册 > 从 YAML 的 class 字段推断 > 默认 detect
+        if known and known.get("caps"):
+            capabilities = known["caps"]
+        else:
+            capabilities = _infer_capabilities_from_yaml(runtime_config)
 
         # 自动下载模型文件（如果不存在）
         _ensure_models_downloaded(model_id)

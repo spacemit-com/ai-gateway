@@ -16,7 +16,7 @@ async def main() -> None:
             json.dumps(
                 {
                     "signal": "start",
-                    "model_id": "yolov8",
+                    "model_id": "yolov8n",
                     "fps_limit": 15,
                     "priority": 1,
                 }

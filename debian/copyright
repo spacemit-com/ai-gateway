@@ -15,15 +15,21 @@ Files:     .cursorignore
            configs/vision/bytetrack.yaml
            configs/vision/emotion.yaml
            configs/vision/ocsort.yaml
-           configs/vision/pp_liteseg.yaml
            configs/vision/resnet50.yaml
-           configs/vision/yolov11.yaml
+           configs/vision/yolov11n.yaml
+           configs/vision/yolov11s.yaml
            configs/vision/yolov5-face.yaml
            configs/vision/yolov5.yaml
            configs/vision/yolov5_gesture.yaml
-           configs/vision/yolov8.yaml
-           configs/vision/yolov8_pose.yaml
-           configs/vision/yolov8_seg.yaml
+           configs/vision/yolov8m-pose.yaml
+           configs/vision/yolov8m-seg.yaml
+           configs/vision/yolov8m.yaml
+           configs/vision/yolov8n-pose.yaml
+           configs/vision/yolov8n-seg.yaml
+           configs/vision/yolov8n.yaml
+           configs/vision/yolov8s-pose.yaml
+           configs/vision/yolov8s-seg.yaml
+           configs/vision/yolov8s.yaml
            docs/API设计.md
            docs/embed/README.md
            docs/embed/testing.md
@@ -103,15 +109,21 @@ Files:     .cursorignore
            src/spacemit_ai_gateway/configs/vision/bytetrack.yaml
            src/spacemit_ai_gateway/configs/vision/emotion.yaml
            src/spacemit_ai_gateway/configs/vision/ocsort.yaml
-           src/spacemit_ai_gateway/configs/vision/pp_liteseg.yaml
            src/spacemit_ai_gateway/configs/vision/resnet50.yaml
-           src/spacemit_ai_gateway/configs/vision/yolov11.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov11n.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov11s.yaml
            src/spacemit_ai_gateway/configs/vision/yolov5-face.yaml
            src/spacemit_ai_gateway/configs/vision/yolov5.yaml
            src/spacemit_ai_gateway/configs/vision/yolov5_gesture.yaml
-           src/spacemit_ai_gateway/configs/vision/yolov8.yaml
-           src/spacemit_ai_gateway/configs/vision/yolov8_pose.yaml
-           src/spacemit_ai_gateway/configs/vision/yolov8_seg.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8m-pose.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8m-seg.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8m.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8n-pose.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8n-seg.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8n.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8s-pose.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8s-seg.yaml
+           src/spacemit_ai_gateway/configs/vision/yolov8s.yaml
            src/spacemit_ai_gateway/domains/__init__.py
            src/spacemit_ai_gateway/domains/asr/__init__.py
            src/spacemit_ai_gateway/domains/asr/adapters/__init__.py

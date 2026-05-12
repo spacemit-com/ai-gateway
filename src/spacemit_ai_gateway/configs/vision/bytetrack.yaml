@@ -12,4 +12,3 @@ default_params:
   num_threads: 3
   providers:
     - SpaceMITExecutionProvider
-

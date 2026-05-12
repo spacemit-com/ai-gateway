@@ -1,14 +1,13 @@
-# ByteTrack 目标追踪模型配置
+# YOLOv8 目标检测模型配置
+# 默认模型路径为 yolov8n；可通过参数 model_path 覆盖该路径
 model_path: ~/.cache/models/vision/yolov8/yolov8n.q.onnx
-test_video: ~/.cache/assets/video/003_palace.mp4
-image_size: [640, 640]
+test_image: ~/.cache/assets/image/006_test.jpg
 label_file_path: src/spacemit_ai_gateway/domains/vision/assets/labels/coco.txt
-class: deploy.bytetrack.ByteTrackTracker
+image_size: [640, 640]
+class: deploy.yolov8.YOLOv8Detector
 default_params:
   conf_threshold: 0.25
   iou_threshold: 0.45
-  track_buffer: 30
-  frame_rate: 30
   num_threads: 4
   providers:
     - SpaceMITExecutionProvider
