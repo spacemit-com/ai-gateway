@@ -73,6 +73,8 @@ class VisionService:
         model_id: Optional[str] = None,
         render: bool = False,
         render_mode: Optional[str] = None,
+        conf: Optional[float] = None,
+        iou: Optional[float] = None,
     ) -> InferenceResponse:
         if not tasks:
             raise ServiceError(400, ErrorCode.INVALID_ARGUMENT, "tasks[] is required and must not be empty")
@@ -87,7 +89,7 @@ class VisionService:
         managed, resolved_id = self.registry.get_instance(model_id)
 
         if managed.backend_instance is not None:
-            resp = self._infer_native(managed, resolved_id, tasks, image_bytes)
+            resp = self._infer_native(managed, resolved_id, tasks, image_bytes, conf=conf, iou=iou)
         else:
             resp = self._infer_mock(resolved_id, tasks, image_bytes)
 
@@ -125,10 +127,20 @@ class VisionService:
             f.write(image_bytes)
         return f"/artifacts/vision/render/{filename}"
 
-    def _infer_native(self, managed, resolved_id: str, tasks: List[str], image_bytes: bytes) -> InferenceResponse:
+    def _infer_native(
+        self,
+        managed,
+        resolved_id: str,
+        tasks: List[str],
+        image_bytes: bytes,
+        conf: Optional[float] = None,
+        iou: Optional[float] = None,
+    ) -> InferenceResponse:
         try:
             img_bgr = self.adapter.bytes_to_bgr(image_bytes)
-            ok, raw_results = self.adapter.infer_image(managed.backend_instance, img_bgr)
+            ok, raw_results = self.adapter.infer_image(
+                managed.backend_instance, img_bgr, conf=conf, iou=iou,
+            )
             if not ok:
                 raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, "inference failed")
 

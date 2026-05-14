@@ -201,12 +201,16 @@ window.visionApi = {
   getEngine:    () => visionRequest(API_BASES.vision, '/v1/vision/engine'),
   updateEngine: (body) => visionRequest(API_BASES.vision, '/v1/vision/engine',
                    { method: 'PATCH', body: JSON.stringify(body) }),
-  inference:    (imageFile, tasks, model_id) => {
+  inference:    (imageFile, tasks, model_id, opts) => {
     const form = new FormData();
     form.append('file', imageFile);
     if (tasks) form.append('tasks', JSON.stringify(tasks));
-    const qs = model_id ? '?model_id=' + encodeURIComponent(visionBackendModelId(model_id)) : '';
-    return fetch(API_BASES.vision + '/v1/vision/inference' + qs, { method: 'POST', body: form })
+    const qs = new URLSearchParams();
+    if (model_id) qs.set('model_id', visionBackendModelId(model_id));
+    if (opts && opts.conf != null && opts.conf !== '') qs.set('conf', String(opts.conf));
+    if (opts && opts.iou != null && opts.iou !== '') qs.set('iou', String(opts.iou));
+    const suffix = qs.toString() ? ('?' + qs.toString()) : '';
+    return fetch(API_BASES.vision + '/v1/vision/inference' + suffix, { method: 'POST', body: form })
       .then(async r => {
         const json = await r.json();
         if (!r.ok) throw new Error(json.message || json.detail || `${r.status} ${r.statusText}`);

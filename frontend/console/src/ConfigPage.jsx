@@ -278,8 +278,9 @@ function ConfigPage() {
     trigger_threshold: '触发阈值', stop_threshold: '停止阈值',
     min_speech_ms: '最短语音(ms)', max_silence_ms: '最大静音(ms)',
     bit_depth: '位深', npu_priority: 'NPU 优先级', memory_limit: '内存限制',
-    nms: 'NMS IoU', input_size: '输入尺寸', ai_core_group: 'AI Core 组',
-    precision: '精度', detect_threshold: '检测阈值',
+    input_size: '输入尺寸', ai_core_group: 'AI Core 组',
+    precision: '精度',
+    conf: '置信度阈值 (conf)', iou: 'IoU 阈值',
   };
 
   // Field renderers
@@ -432,8 +433,8 @@ function ConfigPage() {
         onSave={saveVisParams} saving={visParamsSaving}
         saved={visParamsSaved} pendingRestart={visParamsRestart}>
         {visParams && <>
-          {numberField('detect_threshold', (visParams.thresholds || {}).detect, v => setVisParams({ ...visParams, thresholds: { ...visParams.thresholds, detect: v } }), '0.01')}
-          {numberField('nms', visParams.nms, v => setVisParams({ ...visParams, nms: v }), '0.01')}
+          {numberField('conf', visParams.conf, v => setVisParams({ ...visParams, conf: v }), '0.01')}
+          {numberField('iou', visParams.iou, v => setVisParams({ ...visParams, iou: v }), '0.01')}
           {numberField('input_size', visParams.input_size, v => setVisParams({ ...visParams, input_size: v }), '1')}
         </>}
       </ConfigSection>

@@ -311,7 +311,7 @@ LLM 域不在 `spacemit-ai-gateway` 进程内直接实现推理，而是把 `lla
 | 5. 资源管理 | POST | `/v1/vision/models/load` | 热加载 / 切换模型 | `model_id`、`engine_config`；不对外暴露底层配置文件路径 |
 | 5. 资源管理 | POST | `/v1/vision/models/unload` | 卸载模型 | `model_id`；卸载空闲模型，不影响已建立流连接 |
 | 5. 资源管理 | POST | `/v1/vision/models/switch` | 切换默认模型/模型组 | `model_id` 或 `model_group`；只影响新请求与新连接 |
-| 6. 运维与参数 | GET/PATCH | `/v1/vision/params` | 推理参数调优 | `thresholds`、`nms`、`roi_masks` 等 |
+| 6. 运维与参数 | GET/PATCH | `/v1/vision/params` | 推理参数调优 | `conf`、`iou`、`roi_masks` 等 |
 | 6. 运维与参数 | GET/PATCH | `/v1/vision/engine` | 引擎资源配置 | `ai_core_group`、`threads`、`precision` 等 |
 | 6. 运维与参数 | GET | `/v1/vision/stats` | 性能与硬件指标 | `rtf`、`fps`、`ai_temp`、`queue`、`infer_ms` 等 |
 | 6. 运维与参数 | GET | `/v1/vision/healthz` | 健康检查 | Vision 子域就绪；根路径 `GET /healthz` 表示整服务状态 |
@@ -2997,8 +2997,8 @@ llamacpp:requests_processing 1
 
 | 参数 | 说明 |
 |------|------|
-| `thresholds` | 各任务阈值。 |
-| `nms` | 非极大值抑制参数。 |
+| `conf` | 目标检测置信度阈值（0~1）。 |
+| `iou` | 非极大值抑制 IoU 阈值（0~1）。 |
 | `roi_masks` | ROI 掩码配置。 |
 | `input_size` | 输入尺寸。 |
 
@@ -3010,10 +3010,8 @@ llamacpp:requests_processing 1
 
 ```json
 {
-  "thresholds": {
-    "detect": 0.25
-  },
-  "nms": 0.45,
+  "conf": 0.25,
+  "iou": 0.45,
   "roi_masks": [],
   "input_size": 640
 }

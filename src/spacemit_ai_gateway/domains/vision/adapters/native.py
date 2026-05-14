@@ -157,8 +157,20 @@ class NativeAdapter:
 
     # ── Native inference ────────────────────────────────────────────
 
-    def infer_image(self, instance: Any, img_bgr: np.ndarray) -> Tuple[bool, Any]:
-        status, results = instance.infer_image(img_bgr)
+    def infer_image(
+        self,
+        instance: Any,
+        img_bgr: np.ndarray,
+        conf: Optional[float] = None,
+        iou: Optional[float] = None,
+    ) -> Tuple[bool, Any]:
+        conf_val = float(conf) if conf is not None and conf > 0 else -1.0
+        iou_val = float(iou) if iou is not None and iou > 0 else -1.0
+        try:
+            status, results = instance.infer_image(img_bgr, conf=conf_val, iou=iou_val)
+        except TypeError:
+            # Older binding without conf/iou kwargs
+            status, results = instance.infer_image(img_bgr)
         ok = status == self._VisionServiceStatus.OK
         return ok, results
 

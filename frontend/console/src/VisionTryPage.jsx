@@ -53,7 +53,8 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const [error, setError] = useStateV('');
   const [loadError, setLoadError] = useStateV('');
   const [modelReady, setModelReady] = useStateV(model.status === 'ready');
-  const [threshold, setThreshold] = useStateV(0.5);
+  const [threshold, setThreshold] = useStateV(0.25);
+  const [iou, setIou] = useStateV(0.45);
   const [results, setResults] = useStateV(null);
   const [similarity, setSimilarity] = useStateV(null);
   const [timing, setTiming] = useStateV(null);
@@ -88,6 +89,15 @@ function VisionTryPage({ model, onBack: _onBack }) {
       for (const m of loaded) await visionApi.unloadModel(m.model_id).catch(() => {});
     };
 
+    const syncServerParams = async () => {
+      try {
+        const p = await visionApi.getParams();
+        if (!p) return;
+        if (p.conf != null) setThreshold(+p.conf);
+        if (p.iou != null) setIou(+p.iou);
+      } catch {}
+    };
+
     const loadCurrentModel = async () => {
       setLoadError(t('模型加载中…'));
       // 先卸载其他已加载的模型，释放 AI cores
@@ -111,6 +121,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
       }
     };
 
+    syncServerParams();
     loadCurrentModel();
   }, []);
 
@@ -121,6 +132,16 @@ function VisionTryPage({ model, onBack: _onBack }) {
       visionApi.unloadModel(backendModelId).catch(() => {});
     };
   }, []);
+
+  // Push conf/iou updates to an active stream so camera mode reacts live
+  useEffectV(() => {
+    const ws = wsRef.current;
+    if (!camActive || !ws || ws.readyState !== 1) return;
+    if (!(hasDetect || hasPose || hasSegment || hasTrack)) return;
+    try {
+      ws.send(JSON.stringify({ signal: 'update_params', conf: threshold, iou }));
+    } catch {}
+  }, [threshold, iou, camActive]);
 
   const stopCamera = () => {
     if (frameLoopRef.current) { cancelAnimationFrame(frameLoopRef.current); frameLoopRef.current = null; }
@@ -157,7 +178,15 @@ function VisionTryPage({ model, onBack: _onBack }) {
       video.srcObject = stream;
       await video.play();
 
-      const wsUrl = visionApi.streamUrl() + '?model_id=' + encodeURIComponent(backendModelId) + '&fps_limit=' + fpsLimit;
+      const wsQs = new URLSearchParams({
+        model_id: backendModelId,
+        fps_limit: String(fpsLimit),
+      });
+      if (hasDetect || hasPose || hasSegment || hasTrack) {
+        wsQs.set('conf', String(threshold));
+        wsQs.set('iou', String(iou));
+      }
+      const wsUrl = visionApi.streamUrl() + '?' + wsQs.toString();
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -273,7 +302,12 @@ function VisionTryPage({ model, onBack: _onBack }) {
         }
       } else {
         const tasks = caps.filter(c => ['detect','pose','segment','classify','emotion','track'].includes(c));
-        const res = await visionApi.inference(imgFile, tasks, model.id);
+        const opts = {};
+        if (hasDetect || hasPose || hasSegment || hasTrack) {
+          opts.conf = threshold;
+          opts.iou = iou;
+        }
+        const res = await visionApi.inference(imgFile, tasks, model.id, opts);
         setResults(res.results || res);
         setTiming(res.timing || null);
         const dets = res.results?.detect || res.detect || [];
@@ -823,12 +857,11 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 <input type="range" className="slider" min="0" max="1" step="0.05"
                   value={threshold} onChange={e => setThreshold(+e.target.value)}/>
               </div>
-              {mode === 'image' && (
-                <div className="tweak-row">
-                  <label className="tweak-label">NMS IoU</label>
-                  <input type="range" className="slider" min="0" max="1" step="0.05" defaultValue="0.45"/>
-                </div>
-              )}
+              <div className="tweak-row">
+                <label className="tweak-label">NMS IoU · <span className="text-mono">{iou.toFixed(2)}</span></label>
+                <input type="range" className="slider" min="0" max="1" step="0.05"
+                  value={iou} onChange={e => setIou(+e.target.value)}/>
+              </div>
             </div>
           )}
           <div>

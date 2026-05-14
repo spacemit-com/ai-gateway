@@ -542,10 +542,8 @@ curl -s localhost:18790/v1/vision/params | jq .
   "message": "ok",
   "request_id": "f09a8b86-0d82-444d-b2a9-7608b0405f7e",
   "data": {
-    "thresholds": {
-      "detect": 0.25
-    },
-    "nms": 0.45,
+    "conf": 0.25,
+    "iou": 0.45,
     "roi_masks": [],
     "input_size": 640
   }
@@ -556,7 +554,7 @@ curl -s localhost:18790/v1/vision/params | jq .
 ```bash
 curl -s -X PATCH localhost:18790/v1/vision/params \
     -H 'Content-Type: application/json' \
-    -d '{"thresholds":{"detect":0.35}}' | jq .
+    -d '{"conf":0.35}' | jq .
 ```
 
 ```bash
@@ -569,10 +567,8 @@ curl -s localhost:18790/v1/vision/params | jq .
   "message": "ok",
   "request_id": "73da78e4-a7be-43e5-9085-4b5cb74ff64c",
   "data": {
-    "thresholds": {
-      "detect": 0.35
-    },
-    "nms": 0.45,
+    "conf": 0.35,
+    "iou": 0.45,
     "roi_masks": [],
     "input_size": 640
   }

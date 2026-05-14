@@ -102,6 +102,21 @@ def _ok(request: Request, data: Any = None) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload.model_dump(mode="json"))
 
 
+def _coerce_threshold(value: Any, fallback: Optional[float]) -> Optional[float]:
+    """Parse a conf/iou candidate. Returns a positive float or ``fallback``.
+
+    Strings (from query params) are accepted. Non-positive or unparsable values
+    fall back to the provided default.
+    """
+    if value is None or value == "":
+        return fallback
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return v if v > 0 else fallback
+
+
 def _timing_infer_ms(timing: Any) -> Optional[float]:
     """Extract infer_ms from timing object, with fallback aggregation."""
     if timing is None:
@@ -192,6 +207,8 @@ async def inference(
     handle: Optional[str] = Form(default=None),
     render: Optional[str] = Form(default=None),
     render_mode: Optional[str] = Form(default=None),
+    conf: Optional[float] = Form(default=None),
+    iou: Optional[float] = Form(default=None),
     _: None = Depends(verify_api_key),
 ):
     # 支持 multipart/form-data 和 application/json
@@ -199,6 +216,8 @@ async def inference(
 
     # query param 优先（绕过某些 python-multipart 版本的 Form 截断 bug）
     qs_model_id = request.query_params.get("model_id")
+    qs_conf = request.query_params.get("conf")
+    qs_iou = request.query_params.get("iou")
 
     if "application/json" in content_type:
         body = await request.json()
@@ -206,6 +225,8 @@ async def inference(
         mid = qs_model_id or body.get("model_id")
         do_render = bool(body.get("render", False))
         rmode = body.get("render_mode")
+        req_conf = body.get("conf")
+        req_iou = body.get("iou")
         image_bytes = _vision_service.resolve_image_bytes(
             image_base64=body.get("image_base64"),
             image_url=body.get("image_url"),
@@ -216,10 +237,23 @@ async def inference(
         mid = qs_model_id or model_id
         do_render = render is not None and render.lower() in ("true", "1", "yes")
         rmode = render_mode
+        req_conf = conf
+        req_iou = iou
         file_bytes = await file.read() if file else None
         image_bytes = _vision_service.resolve_image_bytes(file_bytes=file_bytes, handle=handle)
 
-    data = _vision_service.infer(task_list, image_bytes, model_id=mid, render=do_render, render_mode=rmode)
+    if qs_conf is not None:
+        req_conf = qs_conf
+    if qs_iou is not None:
+        req_iou = qs_iou
+
+    eff_conf = _coerce_threshold(req_conf, _params.conf)
+    eff_iou = _coerce_threshold(req_iou, _params.iou)
+
+    data = _vision_service.infer(
+        task_list, image_bytes, model_id=mid, render=do_render, render_mode=rmode,
+        conf=eff_conf, iou=eff_iou,
+    )
     infer_ms = _timing_infer_ms(getattr(data, "timing", None))
     if infer_ms is not None:
         _stats.infer_ms = infer_ms
@@ -299,7 +333,9 @@ async def stream_ws(ws: WebSocket):
     qs_model_group = ws.query_params.get("model_group")
     qs_fps_limit = ws.query_params.get("fps_limit")
     qs_priority = ws.query_params.get("priority")
-    has_qs = any(v is not None for v in (qs_model_id, qs_model_group, qs_fps_limit, qs_priority))
+    qs_conf = ws.query_params.get("conf")
+    qs_iou = ws.query_params.get("iou")
+    has_qs = any(v is not None for v in (qs_model_id, qs_model_group, qs_fps_limit, qs_priority, qs_conf, qs_iou))
 
     if has_qs:
         try:
@@ -308,6 +344,8 @@ async def stream_ws(ws: WebSocket):
                 model_group=qs_model_group,
                 fps_limit=int(qs_fps_limit) if qs_fps_limit else None,
                 priority=int(qs_priority) if qs_priority else None,
+                conf=_coerce_threshold(qs_conf, _params.conf),
+                iou=_coerce_threshold(qs_iou, _params.iou),
             )
             stream_id = session.stream_id
             await ws.send_json(_stream_mgr.build_ready_event(session, qs_model_group))
@@ -341,7 +379,10 @@ async def stream_ws(ws: WebSocket):
             if "bytes" in message and message["bytes"]:
                 image_bytes = message["bytes"]
                 if session is None:
-                    session = _stream_mgr.create_session()
+                    session = _stream_mgr.create_session(
+                        conf=_params.conf,
+                        iou=_params.iou,
+                    )
                     stream_id = session.stream_id
                     await ws.send_json(_stream_mgr.build_ready_event(session))
 
@@ -367,9 +408,27 @@ async def stream_ws(ws: WebSocket):
                         model_group=ctrl.get("model_group"),
                         fps_limit=ctrl.get("fps_limit"),
                         priority=ctrl.get("priority"),
+                        conf=_coerce_threshold(ctrl.get("conf"), _params.conf),
+                        iou=_coerce_threshold(ctrl.get("iou"), _params.iou),
                     )
                     stream_id = session.stream_id
                     await ws.send_json(_stream_mgr.build_ready_event(session, ctrl.get("model_group")))
+
+                elif signal == "update_params":
+                    if session is not None:
+                        _stream_mgr.update_session_thresholds(
+                            session,
+                            conf=_coerce_threshold(ctrl.get("conf"), None),
+                            iou=_coerce_threshold(ctrl.get("iou"), None),
+                        )
+                        await ws.send_json({
+                            "event": "params_updated",
+                            "stream_id": stream_id,
+                            "conf": session.conf,
+                            "iou": session.iou,
+                        })
+                    else:
+                        await ws.send_json({"event": "error", "message": "no active session"})
 
                 elif signal == "heartbeat":
                     await ws.send_json({"event": "heartbeat_ack", "stream_id": stream_id})
@@ -390,6 +449,8 @@ async def stream_ws(ws: WebSocket):
                         session = _stream_mgr.create_session(
                             model_id=ctrl.get("model_id"),
                             model_group=ctrl.get("model_group"),
+                            conf=_coerce_threshold(ctrl.get("conf"), _params.conf),
+                            iou=_coerce_threshold(ctrl.get("iou"), _params.iou),
                         )
                         stream_id = session.stream_id
                         await ws.send_json(_stream_mgr.build_ready_event(session))

@@ -219,8 +219,8 @@ class ModelsListResponse(BaseModel):
 # ── 7.5 Params / Engine / Stats / Health ────────────────────────────
 
 class VisionParams(BaseModel):
-    thresholds: Dict[str, float] = Field(default_factory=lambda: {"detect": 0.25})
-    nms: float = 0.45
+    conf: float = 0.25
+    iou: float = 0.45
     roi_masks: List[Any] = Field(default_factory=list)
     input_size: int = 640
 
