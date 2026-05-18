@@ -74,7 +74,7 @@ logging:
 llm:
   backend: "qwen3-0.6b-q4_0"         # 默认后端
   # backends: ["qwen3-0.6b-q4_0", "qwen3.5-2b-q4_0"]       # 预载多后端
-  default_args: ["--ctx-size", "4096", "--threads", "8", "--metrics", "--reasoning-format", "none", "--reasoning-budget", "0"]
+  default_args: ["--ctx-size", "4096", "--threads", "8", "--metrics", "--reasoning", "off"]
   port_pool:
     start: 18800
     end: 18900
