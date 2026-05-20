@@ -3,6 +3,9 @@ from __future__ import annotations
 import sys
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from spacemit_ai_gateway.app.settings import AsrConfig, TtsConfig
 from spacemit_ai_gateway.common.model_download import (
@@ -48,6 +51,7 @@ def test_speech_defaults_use_single_startup_models():
     tts = TtsConfig()
 
     assert asr.backend == "sensevoice"
+    assert asr.warmup_audio_ms == 1000
     assert [model["id"] for model in asr.models] == ["sensevoice"]
     assert tts.backend == "matcha_zh_en"
     assert [model["id"] for model in tts.models] == ["matcha_zh_en"]
@@ -70,6 +74,70 @@ def test_asr_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
     assert calls
     assert calls[0][0] == tmp_path / "asr" / "sensevoice"
     assert backend.state == BackendReadyState.DEGRADED
+
+
+@pytest.mark.asyncio
+async def test_sensevoice_warmup_runs_fixed_length_audio(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.asr.adapters import sensevoice
+
+    engine_instances = []
+
+    class FakeLanguage:
+        AUTO = "auto"
+        ZH = "zh"
+        EN = "en"
+        JA = "ja"
+        KO = "ko"
+        YUE = "yue"
+
+    class FakeConfig:
+        def __init__(self, model_dir):
+            self.model_dir = model_dir
+            self.language = None
+            self.punctuation_enabled = None
+            self.provider = None
+
+    class FakeResult:
+        text = ""
+        audio_duration_ms = 250.0
+        processing_time_ms = 1.0
+        rtf = 0.004
+
+    class FakeEngine:
+        def __init__(self, config):
+            self.config = config
+            self.recognize_calls = []
+            engine_instances.append(self)
+
+        def initialize(self):
+            return None
+
+        def recognize(self, samples):
+            self.recognize_calls.append(samples.copy())
+            return FakeResult()
+
+    fake_spacemit_asr = SimpleNamespace(
+        Language=FakeLanguage,
+        Config=FakeConfig,
+        Engine=FakeEngine,
+    )
+
+    monkeypatch.setattr(sensevoice, "ensure_archive_model", lambda *a, **kw: None)
+    monkeypatch.setitem(sys.modules, "spacemit_asr", fake_spacemit_asr)
+
+    backend = sensevoice.SenseVoiceBackend(
+        AsrConfig(model_dir=str(tmp_path / "asr"), warmup_audio_ms=250)
+    )
+
+    await backend.warmup()
+
+    assert backend.state == BackendReadyState.READY
+    assert len(engine_instances) == 1
+    assert len(engine_instances[0].recognize_calls) == 1
+    samples = engine_instances[0].recognize_calls[0]
+    assert samples.dtype.name == "int16"
+    assert samples.shape == (4000,)
+    assert samples.sum() == 0
 
 
 def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):

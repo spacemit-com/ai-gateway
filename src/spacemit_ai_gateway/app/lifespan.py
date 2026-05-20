@@ -5,7 +5,7 @@
 - VAD 单 backend 不变
 - ASR/TTS 各自独立 SessionStore（VAD 无状态不需要）
 - 装配 service + stream handler 到 app.state
-- warmup 用 asyncio.create_task 异步触发，不阻塞 startup
+- 默认 ASR backend 同步 warmup 后再接受流量，其它 backend 后台 warmup
 - 关闭时 cancel warmup、并行 await backend.shutdown()
 """
 
@@ -143,16 +143,24 @@ async def lifespan(app: FastAPI):
     app.state.tts_stream_handler = TtsStreamHandler(tts_service)
     app.state.vad_stream_handler = VadStreamHandler(vad_service)
 
-    all_backends = (
-        list(asr_backends.values())
+    default_asr_backend = asr_backends[asr_default]
+    background_asr_backends = [
+        backend for name, backend in asr_backends.items() if name != asr_default
+    ]
+    background_warmup_backends = (
+        background_asr_backends
         + list(tts_backends.values())
         + list(vad_backends.values())
         + list(llm_backends.values())
         + list(embed_backends.values())
         + list(rerank_backends.values())
     )
+    all_backends = [default_asr_backend] + background_warmup_backends
+
+    logger.info("[lifespan] warming up ASR before accepting traffic")
+    await _warmup_all([default_asr_backend])
     app.state.warmup_task = asyncio.create_task(
-        _warmup_all(all_backends),
+        _warmup_all(background_warmup_backends),
         name="spacemit-ai-gateway-warmup",
     )
 
@@ -160,7 +168,7 @@ async def lifespan(app: FastAPI):
     tts_names = list(tts_backends.keys())
     vad_names = list(vad_backends.keys())
     logger.info(
-        "[lifespan] ready — asr=%s tts=%s vad=%s (warmup running in background)",
+        "[lifespan] ready — asr=%s tts=%s vad=%s (non-ASR warmup running in background)",
         asr_names,
         tts_names,
         vad_names,

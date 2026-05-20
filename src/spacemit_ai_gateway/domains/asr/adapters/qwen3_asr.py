@@ -22,7 +22,14 @@ from ....app.settings import AsrConfig
 from ....common.errors import AsrBackendUnavailable, AsrInvalidAudio
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo
-from .base import AsrBackend, AsrEvent, AsrStreamSession, RecognitionResult
+from .base import (
+    DEFAULT_SAMPLE_RATE,
+    AsrBackend,
+    AsrEvent,
+    AsrStreamSession,
+    RecognitionResult,
+    build_pcm16_silence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,14 @@ class Qwen3AsrBackend(AsrBackend):
         return self._state
 
     async def warmup(self) -> None:
+        audio = build_pcm16_silence(self._config.warmup_audio_ms)
+        if audio:
+            await self.recognize(
+                audio=audio,
+                sample_rate=DEFAULT_SAMPLE_RATE,
+                language=self._config.language,
+                punctuation=self._config.punctuation,
+            )
         self._state = BackendReadyState.READY
 
     async def recognize(

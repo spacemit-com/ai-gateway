@@ -18,7 +18,14 @@ from ....common.errors import AsrBackendUnavailable, AsrInvalidAudio
 from ....common.model_download import ensure_archive_model, expand_path
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo
-from .base import AsrBackend, AsrEvent, AsrStreamSession, RecognitionResult
+from .base import (
+    DEFAULT_SAMPLE_RATE,
+    AsrBackend,
+    AsrEvent,
+    AsrStreamSession,
+    RecognitionResult,
+    build_pcm16_silence,
+)
 
 logger = logging.getLogger(__name__)
 logger_bridge = logging.getLogger(f"{__name__}._Bridge")
@@ -105,7 +112,14 @@ class SenseVoiceBackend(AsrBackend):
         if self._mock:
             self._state = BackendReadyState.READY
             return
-        # 真 backend 可在此触发首次推理；暂时直接置 READY
+        audio = build_pcm16_silence(self._config.warmup_audio_ms)
+        if audio:
+            await self.recognize(
+                audio=audio,
+                sample_rate=DEFAULT_SAMPLE_RATE,
+                language=self._config.language,
+                punctuation=self._config.punctuation,
+            )
         self._state = BackendReadyState.READY
 
     async def recognize(
@@ -134,6 +148,9 @@ class SenseVoiceBackend(AsrBackend):
         except Exception as e:
             logger.exception("ASR recognize failed")
             raise AsrBackendUnavailable(str(e)) from e
+
+        if self._state is not BackendReadyState.READY:
+            self._state = BackendReadyState.READY
 
         return RecognitionResult(
             text=raw.text,

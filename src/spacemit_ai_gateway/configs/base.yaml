@@ -2,7 +2,7 @@
 
 app:
   name: "SpacemiT AI Gateway"
-  version: "0.1.4"
+  version: "0.1.5"
   host: "0.0.0.0"
   port: 18790
   debug: false
@@ -28,6 +28,7 @@ asr:
   language: "zh"
   punctuation: true
   provider: "spacemit"         # cpu | spacemit
+  warmup_audio_ms: 1000        # 启动时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
   qwen3:
     endpoint: "http://127.0.0.1:8063/v1/chat/completions"
     model: "qwen3-asr"

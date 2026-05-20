@@ -213,17 +213,25 @@ def fake_vad_backend() -> FakeVadBackend:
 
 @pytest.fixture
 def asr_service(fake_asr_backend) -> AsrService:
-    return AsrService(fake_asr_backend, SessionStore(ttl_seconds=60, namespace="asr"))
+    return AsrService(
+        {"fake": fake_asr_backend},
+        "fake",
+        SessionStore(ttl_seconds=60, namespace="asr"),
+    )
 
 
 @pytest.fixture
 def tts_service(fake_tts_backend) -> TtsService:
-    return TtsService(fake_tts_backend, SessionStore(ttl_seconds=60, namespace="tts"))
+    return TtsService(
+        {"fake": fake_tts_backend},
+        "fake",
+        SessionStore(ttl_seconds=60, namespace="tts"),
+    )
 
 
 @pytest.fixture
 def vad_service(fake_vad_backend) -> VadService:
-    return VadService(fake_vad_backend)
+    return VadService({"fake": fake_vad_backend}, "fake")
 
 
 @pytest_asyncio.fixture

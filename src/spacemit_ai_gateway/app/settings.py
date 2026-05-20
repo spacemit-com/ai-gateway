@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings
 
 class AppConfig(BaseModel):
     name: str = "SpacemiT AI Gateway"
-    version: str = "0.1.4"
+    version: str = "0.1.5"
     host: str = "0.0.0.0"
     port: int = 18790
     debug: bool = False
@@ -66,6 +66,7 @@ class AsrConfig(BaseModel):
     language: str = "zh"
     punctuation: bool = True
     provider: str = "spacemit"
+    warmup_audio_ms: int = 1000
     qwen3: AsrQwen3Config = Field(default_factory=AsrQwen3Config)
     stream: AsrStreamConfig = Field(default_factory=AsrStreamConfig)
 

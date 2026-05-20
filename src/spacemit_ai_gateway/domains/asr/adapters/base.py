@@ -16,6 +16,15 @@ from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo
 from ....common.streams import StreamSessionBase
 
+DEFAULT_SAMPLE_RATE = 16000
+
+
+def build_pcm16_silence(duration_ms: int, sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
+    if duration_ms <= 0:
+        return b""
+    sample_count = max(1, sample_rate * duration_ms // 1000)
+    return b"\x00\x00" * sample_count
+
 
 @dataclass
 class RecognitionResult:

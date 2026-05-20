@@ -21,7 +21,7 @@ case "$1" in
             --index-url "$PYPI_INDEX" \
             spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision
 
-        echo "==> Installing spacemit-ai-gateway..."
+        echo "==> Installing latest spacemit-ai-gateway from PyPI..."
         "$VENV_DIR/bin/python" -m pip install spacemit-ai-gateway \
             --upgrade \
             --prefer-binary \
