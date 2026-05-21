@@ -60,7 +60,7 @@ _max_upload = enforce_max_upload_size(_settings.limits.max_upload_bytes)
 async def recognize(
     file: UploadFile = File(..., description="音频文件（WAV/PCM）"),
     model: str | None = Form(default=None, description="模型 ID"),
-    language: str = Form(default="zh"),
+    language: str = Form(default="auto"),
     sample_rate: int = Form(default=0),
     punctuation: bool = Form(default=True),
     hotwords: str | None = Form(default=None),

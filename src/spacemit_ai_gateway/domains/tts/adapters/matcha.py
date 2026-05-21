@@ -34,43 +34,48 @@ _DEFAULT_SAMPLE_RATES = {
 }
 
 _DEFAULT_MODEL_DIR = "~/.cache/models/tts/matcha-tts"
-_VOCODER_22K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-22khz-univ.onnx"
-_VOCODER_16K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.onnx"
+_VOCODER_22K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-22khz-univ.q.onnx"
+_VOCODER_16K_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.q.onnx"
+_WARMUP_TEXT = {
+    "matcha_zh": "你好",
+    "matcha_en": "hello",
+    "matcha_zh_en": "你好",
+}
 _MODEL_ASSETS = {
     "matcha_zh": {
         "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-baker.tar.gz",
         "archive_name": "matcha-icefall-zh-baker.tar.gz",
         "required_paths": (
-            "matcha-icefall-zh-baker/model-steps-3.onnx",
+            "matcha-icefall-zh-baker/model-steps-3.q.onnx",
             "matcha-icefall-zh-baker/lexicon.txt",
             "matcha-icefall-zh-baker/tokens.txt",
             "matcha-icefall-zh-baker/dict",
-            "vocos-22khz-univ.onnx",
+            "vocos-22khz-univ.q.onnx",
         ),
-        "vocoder_name": "vocos-22khz-univ.onnx",
+        "vocoder_name": "vocos-22khz-univ.q.onnx",
         "vocoder_url": _VOCODER_22K_URL,
     },
     "matcha_en": {
         "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-en_US-ljspeech.tar.gz",
         "archive_name": "matcha-icefall-en_US-ljspeech.tar.gz",
         "required_paths": (
-            "matcha-icefall-en_US-ljspeech/model-steps-3.onnx",
+            "matcha-icefall-en_US-ljspeech/model-steps-3.q.onnx",
             "matcha-icefall-en_US-ljspeech/tokens.txt",
             "matcha-icefall-en_US-ljspeech/espeak-ng-data",
-            "vocos-22khz-univ.onnx",
+            "vocos-22khz-univ.q.onnx",
         ),
-        "vocoder_name": "vocos-22khz-univ.onnx",
+        "vocoder_name": "vocos-22khz-univ.q.onnx",
         "vocoder_url": _VOCODER_22K_URL,
     },
     "matcha_zh_en": {
         "url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz",
         "archive_name": "matcha-icefall-zh-en.tar.gz",
         "required_paths": (
-            "matcha-icefall-zh-en/model-steps-3.onnx",
+            "matcha-icefall-zh-en/model-steps-3.q.onnx",
             "matcha-icefall-zh-en/vocab_tts.txt",
-            "vocos-16khz-univ.onnx",
+            "vocos-16khz-univ.q.onnx",
         ),
-        "vocoder_name": "vocos-16khz-univ.onnx",
+        "vocoder_name": "vocos-16khz-univ.q.onnx",
         "vocoder_url": _VOCODER_16K_URL,
     },
 }
@@ -145,6 +150,15 @@ class MatchaBackend(TtsBackend):
         return self._state
 
     async def warmup(self) -> None:
+        if self._mock:
+            self._state = BackendReadyState.READY
+            return
+        text = _WARMUP_TEXT.get(self._config.backend, "hello")
+        raw = await asyncio.to_thread(self._engine.synthesize, text)
+        if not raw.is_success:
+            raise TtsBackendUnavailable(
+                f"warmup failed: {getattr(raw, 'message', 'unknown error')}"
+            )
         self._state = BackendReadyState.READY
 
     async def synthesize(

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class RecognizeParams(BaseModel):
     model: Optional[str] = Field(default=None, description="模型 ID，与 /v1/asr/models 对齐")
-    language: str = Field(default="zh", description="语种: zh/en/ja/ko/yue/auto")
+    language: str = Field(default="auto", description="语种: zh/en/ja/ko/yue/auto")
     sample_rate: int = Field(default=0, description="采样率，0 表示自动探测")
     punctuation: bool = Field(default=True, description="是否添加标点")
     word_timestamps: bool = Field(default=False, description="是否返回词级时间戳")
@@ -33,7 +33,7 @@ class StreamSessionRequest(BaseModel):
     model: Optional[str] = Field(default=None, description="模型 ID")
     sample_rate: int = Field(default=16000)
     encoding: str = Field(default="pcm_s16le")
-    language: str = Field(default="zh")
+    language: str = Field(default="auto")
     partial_results: bool = Field(default=True)
     client_id: Optional[str] = None
 
@@ -48,14 +48,14 @@ class StreamSessionResponse(BaseModel):
 
 class StreamQuery(BaseModel):
     session_id: Optional[str] = None
-    language: str = "zh"
+    language: str = "auto"
     sample_rate: int = 16000
     partial: bool = True
 
 
 class LanguagesResponse(BaseModel):
     languages: List[str]
-    default: str = "zh"
+    default: str = "auto"
 
 
 class HealthResponse(BaseModel):
@@ -134,7 +134,7 @@ class AsrInfoResponse(BaseModel):
 class JobSubmitRequest(BaseModel):
     audio_url: str = Field(..., description="音频可拉取地址")
     callback_url: Optional[str] = Field(default=None, description="完成回调地址")
-    language: str = Field(default="zh")
+    language: str = Field(default="auto")
     model: Optional[str] = None
     priority: int = Field(default=0)
 

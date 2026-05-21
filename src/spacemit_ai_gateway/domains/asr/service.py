@@ -171,7 +171,7 @@ class AsrService:
         backend = self._get_backend(record.data.get("model"))
 
         effective_sr = sample_rate or int(record.data.get("sample_rate", 16000))
-        effective_lang = language or str(record.data.get("language", "zh"))
+        effective_lang = language or str(record.data.get("language", "auto"))
         effective_partial = partial if partial is not None else bool(
             record.data.get("partial_results", True)
         )
@@ -194,7 +194,7 @@ class AsrService:
             all_langs.update(backend.get_supported_languages())
         return LanguagesResponse(
             languages=sorted(all_langs),
-            default="zh",
+            default="auto",
         )
 
     async def healthz(self) -> dict:
@@ -338,7 +338,7 @@ class AsrService:
             result = await backend.recognize(
                 audio=audio,
                 sample_rate=16000,
-                language=data.get("language", "zh"),
+                language=data.get("language", "auto"),
                 punctuation=True,
             )
             response = _result_to_response(result)

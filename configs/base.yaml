@@ -2,7 +2,7 @@
 
 app:
   name: "SpacemiT AI Gateway"
-  version: "0.1.5"
+  version: "0.1.6"
   host: "0.0.0.0"
   port: 18790
   debug: false
@@ -25,7 +25,7 @@ asr:
       url: "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz"
       archive_name: "sensevoice.tar.gz"
       archive_subdir: "sensevoice"
-  language: "zh"
+  language: "auto"
   punctuation: true
   provider: "spacemit"         # cpu | spacemit
   warmup_audio_ms: 1000        # 启动时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
@@ -40,14 +40,14 @@ asr:
 
 tts:
   backend: "matcha_zh_en"      # 默认后端: matcha_zh | matcha_en | matcha_zh_en | kokoro
-  # backends: ["matcha_zh_en", "kokoro"]    # 预载多后端，请求 model 字段路由；默认不预载多个，避免占用内存
+  # TTS 不预载多后端，避免同时占用多份声学模型/声码器内存；需要其它模型时调用 /v1/tts/models/load
   model_dir: null
   models:
     - id: "matcha_zh_en"
       url: "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz"
       archive_name: "matcha-icefall-zh-en.tar.gz"
-      vocoder_name: "vocos-16khz-univ.onnx"
-      vocoder_url: "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.onnx"
+      vocoder_name: "vocos-16khz-univ.q.onnx"
+      vocoder_url: "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.q.onnx"
   speed: 1.0
   volume: 50.0
   pitch: 1.0

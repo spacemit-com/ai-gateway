@@ -115,7 +115,7 @@ def _spawn_event_pump(session: AsrStreamSession, ws: WebSocket):
 async def stream_recognize(
     websocket: WebSocket,
     session_id: Optional[str] = Query(default=None),
-    language: str = Query(default="zh"),
+    language: str = Query(default="auto"),
     sample_rate: int = Query(default=16000),
     partial: bool = Query(default=True),
     handler: AsrStreamHandler = Depends(get_asr_stream_handler),

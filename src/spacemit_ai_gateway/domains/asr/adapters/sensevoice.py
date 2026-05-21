@@ -141,9 +141,7 @@ class SenseVoiceBackend(AsrBackend):
                 await asyncio.to_thread(self._engine.update_hotwords, hotwords)
 
             # SDK recognize 只接受 numpy 一维数组（int16 或 float32）
-            if len(audio) % 2 != 0:
-                audio = audio[:-1]
-            samples = np.frombuffer(audio, dtype=np.int16)
+            samples = _pcm16_bytes_to_model_samples(audio, sample_rate)
             raw = await asyncio.to_thread(self._engine.recognize, samples)
         except Exception as e:
             logger.exception("ASR recognize failed")
@@ -223,6 +221,34 @@ def _get_model_asset(models: list[dict], model_id: str) -> dict:
         if item.get("id") == model_id:
             return item
     return {}
+
+
+def _pcm16_bytes_to_model_samples(audio: bytes, sample_rate: int) -> np.ndarray:
+    if len(audio) % 2 != 0:
+        audio = audio[:-1]
+    samples = np.frombuffer(audio, dtype=np.int16)
+    if sample_rate <= 0 or sample_rate == DEFAULT_SAMPLE_RATE or samples.size == 0:
+        return samples
+    return _resample_pcm16(samples, sample_rate, DEFAULT_SAMPLE_RATE)
+
+
+def _resample_pcm16(
+    samples: np.ndarray,
+    source_rate: int,
+    target_rate: int,
+) -> np.ndarray:
+    if source_rate <= 0 or source_rate == target_rate or samples.size <= 1:
+        return samples
+
+    target_size = max(1, int(round(samples.size * target_rate / source_rate)))
+    source_positions = np.arange(samples.size, dtype=np.float64)
+    target_positions = np.linspace(0, samples.size - 1, num=target_size, dtype=np.float64)
+    resampled = np.interp(target_positions, source_positions, samples.astype(np.float32))
+    return np.clip(
+        np.rint(resampled),
+        np.iinfo(np.int16).min,
+        np.iinfo(np.int16).max,
+    ).astype(np.int16)
 
 
 def _mock_result(audio: bytes, sample_rate: int, language: str) -> RecognitionResult:

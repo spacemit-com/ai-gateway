@@ -5,6 +5,7 @@ import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from spacemit_ai_gateway.app.settings import AsrConfig, TtsConfig
@@ -51,10 +52,13 @@ def test_speech_defaults_use_single_startup_models():
     tts = TtsConfig()
 
     assert asr.backend == "sensevoice"
+    assert asr.language == "auto"
     assert asr.warmup_audio_ms == 1000
     assert [model["id"] for model in asr.models] == ["sensevoice"]
     assert tts.backend == "matcha_zh_en"
     assert [model["id"] for model in tts.models] == ["matcha_zh_en"]
+    assert tts.models[0]["vocoder_name"] == "vocos-16khz-univ.q.onnx"
+    assert tts.models[0]["vocoder_url"].endswith("/vocos-16khz-univ.q.onnx")
 
 
 def test_asr_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
@@ -138,6 +142,23 @@ async def test_sensevoice_warmup_runs_fixed_length_audio(monkeypatch, tmp_path):
     assert samples.dtype.name == "int16"
     assert samples.shape == (4000,)
     assert samples.sum() == 0
+    assert engine_instances[0].config.language == "auto"
+
+
+def test_sensevoice_resamples_pcm_to_model_rate():
+    from spacemit_ai_gateway.domains.asr.adapters import sensevoice
+
+    samples = np.arange(22050, dtype=np.int16)
+
+    prepared = sensevoice._pcm16_bytes_to_model_samples(
+        samples.tobytes() + b"x",
+        sample_rate=22050,
+    )
+
+    assert prepared.dtype.name == "int16"
+    assert prepared.shape == (16000,)
+    assert prepared[0] == samples[0]
+    assert prepared[-1] == samples[-1]
 
 
 def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
@@ -158,6 +179,90 @@ def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
     assert calls[0][0] == "matcha_zh_en"
     assert calls[0][1] == tmp_path / "tts" / "matcha-tts"
     assert backend.state == BackendReadyState.DEGRADED
+
+
+def test_tts_startup_loads_only_default_backend(monkeypatch):
+    from spacemit_ai_gateway.domains.tts import adapters
+
+    calls = []
+
+    class FakeBackend:
+        def __init__(self, config):
+            calls.append(config.backend)
+
+    monkeypatch.setitem(adapters._REGISTRY, "matcha_zh_en", FakeBackend)
+    monkeypatch.setitem(adapters._REGISTRY, "matcha_zh", FakeBackend)
+    monkeypatch.setitem(adapters._REGISTRY, "matcha_en", FakeBackend)
+
+    backends = adapters.build_tts_backends(
+        TtsConfig(
+            backend="matcha_zh_en",
+            backends=["matcha_zh_en", "matcha_zh", "matcha_en"],
+        )
+    )
+
+    assert list(backends) == ["matcha_zh_en"]
+    assert calls == ["matcha_zh_en"]
+
+
+@pytest.mark.asyncio
+async def test_matcha_warmup_runs_synthesis(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    engine_instances = []
+
+    class FakeConfig:
+        def __init__(self):
+            self.model_dir = None
+            self.sample_rate = 16000
+            self.speed = 1.0
+
+        @classmethod
+        def preset(cls, backend):
+            return cls()
+
+    class FakeResult:
+        is_success = True
+        message = "ok"
+
+    class FakeEngine:
+        def __init__(self, config):
+            self.config = config
+            self.synthesize_calls = []
+            engine_instances.append(self)
+
+        def synthesize(self, text):
+            self.synthesize_calls.append(text)
+            return FakeResult()
+
+    fake_spacemit_tts = SimpleNamespace(Config=FakeConfig, Engine=FakeEngine)
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setitem(sys.modules, "spacemit_tts", fake_spacemit_tts)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+
+    await backend.warmup()
+
+    assert backend.state == BackendReadyState.READY
+    assert len(engine_instances) == 1
+    assert engine_instances[0].synthesize_calls == ["你好"]
+
+
+def test_matcha_assets_expect_quantized_models():
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    for asset in matcha._MODEL_ASSETS.values():
+        required_paths = asset["required_paths"]
+        assert asset["vocoder_name"].endswith(".q.onnx")
+        assert asset["vocoder_url"].endswith(".q.onnx")
+        assert any(path.endswith("model-steps-3.q.onnx") for path in required_paths)
+        assert not any(
+            path.endswith(".onnx") and not path.endswith(".q.onnx")
+            for path in required_paths
+        )
 
 
 def test_vision_label_path_materializes_package_resource(monkeypatch, tmp_path):

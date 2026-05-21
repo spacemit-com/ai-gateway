@@ -1,5 +1,7 @@
 """TTS adapter 工厂。"""
 
+import logging
+
 from ....app.settings import TtsConfig
 from .base import (
     TtsAudioChunk,
@@ -12,6 +14,8 @@ from .base import (
 )
 from .kokoro import KokoroBackend
 from .matcha import MatchaBackend
+
+logger = logging.getLogger(__name__)
 
 _REGISTRY = {
     "matcha_zh": MatchaBackend,
@@ -29,15 +33,12 @@ def build_tts_backend(config: TtsConfig) -> TtsBackend:
 
 
 def build_tts_backends(config: TtsConfig) -> dict[str, TtsBackend]:
-    names = config.backends if config.backends else [config.backend]
-    result = {}
-    for name in names:
-        cls = _REGISTRY.get(name)
-        if cls is None:
-            raise ValueError(f"unknown TTS backend: {name}")
-        backend_config = config.model_copy(update={"backend": name})
-        result[name] = cls(backend_config)
-    return result
+    if config.backends and set(config.backends) != {config.backend}:
+        logger.warning(
+            "tts.backends preloading is disabled; loading only default backend '%s'",
+            config.backend,
+        )
+    return {config.backend: build_tts_backend(config)}
 
 
 TTS_REGISTRY = _REGISTRY
