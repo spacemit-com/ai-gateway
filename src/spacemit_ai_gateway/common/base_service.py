@@ -126,12 +126,13 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if not row:
             logger.warning("[autoload] default_model '%s' not found in DB", default)
             return
-        if row["status"] == ModelStatus.AVAILABLE:
-            logger.info("[autoload] default_model '%s' not downloaded, starting background download", default)
+        row = await self._sync_file_status(row)
+        if row["status"] == ModelStatus.AVAILABLE and row["source_type"] == "local_url":
+            logger.info("[autoload] default_model '%s' file not found, starting background download", default)
             asyncio.create_task(self._download_then_load(default), name=f"autoload-{default}")
             return
-        if row["status"] not in (ModelStatus.DOWNLOADED, ModelStatus.LOADED):
-            logger.info("[autoload] default_model '%s' status=%s, skipping", default, row["status"])
+        if row["status"] == ModelStatus.DOWNLOADING:
+            logger.info("[autoload] default_model '%s' is downloading, skipping", default)
             return
         try:
             await self.switch(default)
@@ -234,7 +235,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
     async def list_models(self) -> list[dict]:
         async with self._db.execute("SELECT * FROM models") as cur:
             rows = await cur.fetchall()
-        return [dict(row) for row in rows]
+        return [await self._sync_file_status(dict(row)) for row in rows]
 
     async def register(
         self,
@@ -290,6 +291,38 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if commit:
             await self._db.commit()
 
+    async def _sync_file_status(self, row: dict) -> dict:
+        """根据文件是否存在修正 DB 状态，返回修正后的 row。非本地模型直接返回原 row。"""
+        if row["source_type"] == "remote":
+            return row
+        model = row["id"]
+        local_path = row.get("local_path")
+        if not local_path:
+            url = row.get("url", "")
+            if url:
+                local_path = str(self.settings.storage.models_path / url.split("/")[-1])
+        file_exists = bool(local_path and Path(local_path).exists())
+        status = row["status"]
+        active_statuses = (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING, ModelStatus.DOWNLOADING)
+        if file_exists and status not in active_statuses:
+            await self._db.execute(
+                "UPDATE models SET status=?, local_path=?, download_progress=1.0 WHERE id=?",
+                (ModelStatus.DOWNLOADED, local_path, model),
+            )
+            await self._db.commit()
+            return {**row, "status": ModelStatus.DOWNLOADED, "local_path": local_path}
+        if file_exists and not row.get("local_path"):
+            await self._db.execute(
+                "UPDATE models SET local_path=? WHERE id=?",
+                (local_path, model),
+            )
+            await self._db.commit()
+            return {**row, "local_path": local_path}
+        if not file_exists and status not in (ModelStatus.AVAILABLE, ModelStatus.DOWNLOADING):
+            await self._reset_missing_local_file(model)
+            return {**row, "status": ModelStatus.AVAILABLE, "local_path": None}
+        return row
+
     async def _download(self, model: str, url: str, dest: Path) -> None:
         await self._set_status(model, ModelStatus.DOWNLOADING, 0.0)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -334,17 +367,16 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             raise ValueError(f"Model '{model}' not found")
         if row["source_type"] != "local_url":
             raise ValueError(f"Model '{model}' is not a local_url model")
-        if row["status"] == ModelStatus.DOWNLOADING:
+        if model in self._download_tasks:
             raise ValueError(f"Model '{model}' is already downloading")
-        if row["status"] == ModelStatus.DOWNLOADED:
-            raise ValueError(f"Model '{model}' is already downloaded")
-        if row["status"] == ModelStatus.LOADED:
-            raise ValueError(f"Model '{model}' is already loaded")
         url = row.get("url")
         if not url:
             raise ValueError(f"Model '{model}' has no URL")
         filename = url.split("/")[-1]
         dest = self.settings.storage.models_path / filename
+        row = await self._sync_file_status(row)
+        if row["status"] == ModelStatus.DOWNLOADED:
+            raise ValueError(f"Model '{model}' is already downloaded")
         task = asyncio.create_task(self._download(model, url, dest))
         self._download_tasks[model] = task
         task.add_done_callback(lambda _: self._download_tasks.pop(model, None))
@@ -368,8 +400,8 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if not row:
             raise ValueError(f"Model '{model}' not found")
 
+        row = await self._sync_file_status(row)
         source_type = row["source_type"]
-        status = row["status"]
         local_path = row.get("local_path", "")
 
         backend_impl = self._get_backend_impl()
@@ -388,28 +420,11 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if backend_impl.is_model_running(model):
             return  # 已运行，幂等
 
-        if source_type == "local_url":
-            if status in (ModelStatus.AVAILABLE, ModelStatus.DOWNLOADING):
-                raise ValueError(f"Model '{model}' is not downloaded yet (status: {status})")
-            elif status not in (ModelStatus.DOWNLOADED, ModelStatus.LOADED):
-                raise ValueError(f"Model '{model}' is in unexpected status: {status}")
-
         if source_type != "remote":
             if not local_path:
-                logger.warning("Model '%s' has no local file path, resetting status to available", model)
-                await self._reset_missing_local_file(model)
-                raise ValueError(
-                    f"Model '{model}' has no local file path. "
-                    "Status has been reset to 'available'. Please download it again."
-                )
-
-            if not Path(local_path).exists():
-                logger.warning("Model file not found: %s, resetting status to available", local_path)
-                await self._reset_missing_local_file(model)
-                raise ValueError(
-                    f"Model '{model}' file not found at {local_path}. "
-                    "Status has been reset to 'available'. Please download it again."
-                )
+                raise ValueError(f"Model '{model}' file not found. Please download it again.")
+            if model in self._download_tasks:
+                raise ValueError(f"Model '{model}' is still downloading")
 
         event = asyncio.Event()
         self._loading_events[model] = event
@@ -483,6 +498,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         row = await self._get_model(model)
         if not row:
             raise ValueError(f"Model '{model}' not found")
+        row = await self._sync_file_status(row)
         return {
             "model": model,
             "status": row["status"],
