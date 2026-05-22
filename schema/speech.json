@@ -108,15 +108,15 @@
         "Language": "English"
       },
       "performance": {
-        "Quant": "FP32",
-        "Audio Duration": "2403 ms",
-        "Processing Time": "1180 ms",
-        "RTF": "0.491",
+        "Quant": "INT8",
+        "Audio Duration": "6873 ms",
+        "Processing Time": "1608 ms",
+        "RTF": "0.234",
         "Task": "Text-to-Speech",
-        "量化类型": "FP32",
+        "量化类型": "INT8",
         "任务": "语音合成",
-        "音频时长": "2403 ms",
-        "处理时间": "1180 ms"
+        "音频时长": "6873 ms",
+        "处理时间": "1608 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-en_US-ljspeech.tar.gz",
       "plat": [
@@ -143,15 +143,15 @@
         "Language": "Chinese"
       },
       "performance": {
-        "Quant": "FP32",
-        "Audio Duration": "3784 ms",
-        "Processing Time": "1790 ms",
-        "RTF": "0.473",
+        "Quant": "INT8",
+        "Audio Duration": "2565 ms",
+        "Processing Time": "575 ms",
+        "RTF": "0.224",
         "Task": "Text-to-Speech",
-        "量化类型": "FP32",
+        "量化类型": "INT8",
         "任务": "语音合成",
-        "音频时长": "3784 ms",
-        "处理时间": "1790 ms"
+        "音频时长": "2565 ms",
+        "处理时间": "575 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-baker.tar.gz",
       "plat": [
@@ -178,15 +178,15 @@
         "Language": "Chinese-English"
       },
       "performance": {
-        "Quant": "FP32",
-        "Audio Duration": "3248 ms",
-        "Processing Time": "1121 ms",
-        "RTF": "0.345",
+        "Quant": "INT8",
+        "Audio Duration": "1920 ms",
+        "Processing Time": "542 ms",
+        "RTF": "0.282",
         "Task": "Text-to-Speech",
-        "量化类型": "FP32",
+        "量化类型": "INT8",
         "任务": "语音合成",
-        "音频时长": "3248 ms",
-        "处理时间": "1121 ms"
+        "音频时长": "1920 ms",
+        "处理时间": "542 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz",
       "plat": [
