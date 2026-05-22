@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from ...app.settings import get_settings
+from ...common.audio_codec import AudioDecodeError, normalize_audio_for_inference
+from ...common.errors import AsrInvalidAudio
 from ...common.schemas import (
     ModelInfo,
     ModelLoadRequest,
@@ -58,7 +61,7 @@ _max_upload = enforce_max_upload_size(_settings.limits.max_upload_bytes)
 
 @router.post("/recognize", response_model=RecognizeResponse, summary="同步语音识别")
 async def recognize(
-    file: UploadFile = File(..., description="音频文件（WAV/PCM）"),
+    file: UploadFile = File(..., description="音频文件（WAV/PCM/MP3 等）"),
     model: str | None = Form(default=None, description="模型 ID"),
     language: str = Form(default="auto"),
     sample_rate: int = Form(default=0),
@@ -76,7 +79,20 @@ async def recognize(
         hotwords=hotwords,
     )
     audio = await file.read()
-    return await service.recognize(audio, params)
+    target_sample_rate = service.get_audio_config().sample_rate
+    try:
+        normalized = await asyncio.to_thread(
+            normalize_audio_for_inference,
+            audio,
+            input_sample_rate=sample_rate,
+            target_sample_rate=target_sample_rate,
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+    except AudioDecodeError as exc:
+        raise AsrInvalidAudio(str(exc), details=exc.details) from exc
+    params = params.model_copy(update={"sample_rate": normalized.sample_rate})
+    return await service.recognize(normalized.pcm, params)
 
 
 @router.post(

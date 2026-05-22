@@ -11,6 +11,7 @@ Architecture: any
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends},
  opencv-spacemit,
+ ffmpeg,
  espeak-ng,
  libfftw3-single3,
  llama.cpp-tools-spacemit,

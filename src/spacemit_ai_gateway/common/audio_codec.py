@@ -2,6 +2,7 @@
 
 - decode_audio: 字节流 → int16 numpy 数组 + 采样率
   支持 WAV/PCM（最小依赖）；其它格式抛 NotImplementedError 让 adapter 自己处理。
+- normalize_audio_for_inference: 用户上传音频 → mono PCM16 raw bytes。
 - encode_wav: int16 PCM + sample_rate → WAV 字节流（服务端最常用响应格式）
 - encode_pcm / encode_mp3 / encode_opus: 占位，真正需要时在 adapter 层按需引入 ffmpeg/soundfile
 """
@@ -9,11 +10,54 @@
 from __future__ import annotations
 
 import io
+import os
+import shutil
 import struct
+import subprocess
 import wave
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+
+_DEFAULT_INFERENCE_SAMPLE_RATE = 16000
+_FFMPEG_TIMEOUT_SECONDS = 30
+
+_COMPRESSED_EXTENSIONS = {
+    ".aac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".oga",
+    ".ogg",
+    ".opus",
+    ".webm",
+}
+_COMPRESSED_CONTENT_TYPES = {
+    "audio/aac",
+    "audio/flac",
+    "audio/m4a",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/opus",
+    "audio/webm",
+}
+
+
+@dataclass(frozen=True)
+class NormalizedAudio:
+    pcm: bytes
+    sample_rate: int
+    source_sample_rate: int
+    source_format: str
+
+
+class AudioDecodeError(ValueError):
+    def __init__(self, message: str, *, details: object = None):
+        super().__init__(message)
+        self.details = details
 
 
 def decode_audio(
@@ -35,6 +79,52 @@ def decode_audio(
     return pcm, target_sample_rate
 
 
+def normalize_audio_for_inference(
+    data: bytes,
+    *,
+    input_sample_rate: int = 0,
+    target_sample_rate: int = _DEFAULT_INFERENCE_SAMPLE_RATE,
+    filename: str | None = None,
+    content_type: str | None = None,
+) -> NormalizedAudio:
+    """Decode uploaded audio into mono PCM16 bytes for ASR/VAD backends.
+
+    Raw PCM cannot carry its sample rate. If the caller does not provide one,
+    keep compatibility with the existing HTTP API and assume the target rate.
+    """
+    if not data:
+        raise AudioDecodeError("empty audio")
+    if target_sample_rate <= 0:
+        raise AudioDecodeError(f"invalid target sample rate: {target_sample_rate}")
+
+    source_format = _detect_source_format(data, filename, content_type)
+    if source_format == "compressed":
+        pcm = _decode_with_ffmpeg(data, target_sample_rate)
+        return NormalizedAudio(
+            pcm=pcm.tobytes(),
+            sample_rate=target_sample_rate,
+            source_sample_rate=target_sample_rate,
+            source_format=source_format,
+        )
+
+    if source_format == "wav":
+        try:
+            pcm, source_sample_rate = _decode_wav(data)
+        except (EOFError, wave.Error, ValueError) as exc:
+            raise AudioDecodeError(f"invalid WAV audio: {exc}") from exc
+    else:
+        source_sample_rate = input_sample_rate or target_sample_rate
+        pcm = _decode_raw_pcm(data, source_sample_rate)
+
+    normalized = _resample_pcm16(pcm, source_sample_rate, target_sample_rate)
+    return NormalizedAudio(
+        pcm=normalized.tobytes(),
+        sample_rate=target_sample_rate,
+        source_sample_rate=source_sample_rate,
+        source_format=source_format,
+    )
+
+
 def _decode_wav(data: bytes) -> tuple[np.ndarray, int]:
     with wave.open(io.BytesIO(data), "rb") as wf:
         n_channels = wf.getnchannels()
@@ -50,6 +140,113 @@ def _decode_wav(data: bytes) -> tuple[np.ndarray, int]:
     if n_channels > 1:
         pcm = pcm.reshape(-1, n_channels).mean(axis=1).astype(np.int16)
     return pcm, sample_rate
+
+
+def _decode_raw_pcm(data: bytes, sample_rate: int) -> np.ndarray:
+    if sample_rate <= 0:
+        raise AudioDecodeError(f"invalid raw PCM sample rate: {sample_rate}")
+    if len(data) % 2:
+        raise AudioDecodeError("raw PCM16 audio must contain an even number of bytes")
+    return np.frombuffer(data, dtype=np.int16)
+
+
+def _detect_source_format(
+    data: bytes,
+    filename: str | None,
+    content_type: str | None,
+) -> str:
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "wav"
+    if _has_compressed_magic(data):
+        return "compressed"
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext in _COMPRESSED_EXTENSIONS:
+        return "compressed"
+
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if media_type in _COMPRESSED_CONTENT_TYPES:
+        return "compressed"
+
+    return "raw"
+
+
+def _has_compressed_magic(data: bytes) -> bool:
+    if data.startswith((b"ID3", b"OggS", b"fLaC")):
+        return True
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return True
+    if data.startswith(b"\x1a\x45\xdf\xa3"):
+        return True
+    return len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+
+
+def _decode_with_ffmpeg(data: bytes, target_sample_rate: int) -> np.ndarray:
+    if shutil.which("ffmpeg") is None:
+        raise AudioDecodeError(
+            "compressed audio requires ffmpeg; install ffmpeg or upload PCM/WAV",
+            details={"dependency": "ffmpeg"},
+        )
+
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-i",
+        "pipe:0",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sample_rate),
+        "pipe:1",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=_FFMPEG_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioDecodeError("ffmpeg audio decode timed out") from exc
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise AudioDecodeError(
+            "ffmpeg failed to decode audio",
+            details={"stderr": stderr[-500:]},
+        )
+    if not proc.stdout:
+        raise AudioDecodeError("decoded audio is empty")
+    return np.frombuffer(proc.stdout, dtype=np.int16)
+
+
+def _resample_pcm16(
+    pcm: np.ndarray,
+    source_sample_rate: int,
+    target_sample_rate: int,
+) -> np.ndarray:
+    if source_sample_rate <= 0:
+        raise AudioDecodeError(f"invalid source sample rate: {source_sample_rate}")
+    if source_sample_rate == target_sample_rate or pcm.size == 0:
+        return pcm.astype(np.int16, copy=False)
+
+    target_size = int(round(pcm.size * target_sample_rate / source_sample_rate))
+    if target_size <= 0:
+        return np.empty(0, dtype=np.int16)
+
+    old_positions = np.arange(pcm.size, dtype=np.float64)
+    new_positions = np.linspace(0, pcm.size - 1, target_size, dtype=np.float64)
+    resampled = np.interp(new_positions, old_positions, pcm.astype(np.float32))
+    return np.clip(resampled, -32768, 32767).astype(np.int16)
 
 
 def encode_wav(pcm_int16: np.ndarray, sample_rate: int) -> bytes:

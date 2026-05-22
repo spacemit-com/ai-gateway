@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from ...app.settings import get_settings
+from ...common.audio_codec import AudioDecodeError, normalize_audio_for_inference
+from ...common.errors import VadInvalidAudio
 from ...common.schemas import (
     ModelInfo,
     ModelLoadRequest,
@@ -43,26 +46,50 @@ _max_upload = enforce_max_upload_size(_settings.limits.max_upload_bytes)
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="短片段检测")
 async def analyze(
-    file: UploadFile = File(..., description="音频文件"),
+    file: UploadFile = File(..., description="音频文件（WAV/PCM/MP3 等）"),
     sample_rate: int = Query(default=16000),
     service: VadService = Depends(get_vad_service),
     _: None = Depends(_max_upload),
     __: None = Depends(verify_api_key),
 ) -> AnalyzeResponse:
     audio = await file.read()
-    return await service.analyze(audio, sample_rate)
+    target_sample_rate = service.get_audio_config().sample_rate
+    try:
+        normalized = await asyncio.to_thread(
+            normalize_audio_for_inference,
+            audio,
+            input_sample_rate=sample_rate,
+            target_sample_rate=target_sample_rate,
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+    except AudioDecodeError as exc:
+        raise VadInvalidAudio(str(exc), details=exc.details) from exc
+    return await service.analyze(normalized.pcm, normalized.sample_rate)
 
 
 @router.post("/segments", response_model=SegmentsResponse, summary="音频切分")
 async def segments(
-    file: UploadFile = File(..., description="音频文件"),
+    file: UploadFile = File(..., description="音频文件（WAV/PCM/MP3 等）"),
     sample_rate: int = Query(default=16000),
     service: VadService = Depends(get_vad_service),
     _: None = Depends(_max_upload),
     __: None = Depends(verify_api_key),
 ) -> SegmentsResponse:
     audio = await file.read()
-    return await service.segment(audio, sample_rate)
+    target_sample_rate = service.get_audio_config().sample_rate
+    try:
+        normalized = await asyncio.to_thread(
+            normalize_audio_for_inference,
+            audio,
+            input_sample_rate=sample_rate,
+            target_sample_rate=target_sample_rate,
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+    except AudioDecodeError as exc:
+        raise VadInvalidAudio(str(exc), details=exc.details) from exc
+    return await service.segment(normalized.pcm, normalized.sample_rate)
 
 
 @router.get("/models", response_model=list[ModelInfo], summary="模型列表")

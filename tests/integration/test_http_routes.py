@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
+import io
+import wave
+
+
+def _wav_silence(sample_rate: int = 48000, channels: int = 2, duration_ms: int = 100) -> bytes:
+    frames = sample_rate * duration_ms // 1000
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"\x00" * frames * channels * 2)
+    return buf.getvalue()
+
 
 async def test_root(client):
     r = await client.get("/")
@@ -59,6 +73,14 @@ async def test_asr_recognize_mock(client):
     assert "text" in data
 
 
+async def test_asr_recognize_accepts_48k_stereo_wav(client):
+    files = {"file": ("test.wav", _wav_silence(), "audio/wav")}
+    r = await client.post("/v1/asr/recognize", files=files)
+    assert r.status_code == 200
+    data = r.json()
+    assert "text" in data
+
+
 async def test_asr_stream_session_create(client):
     r = await client.post(
         "/v1/asr/stream/session",
@@ -95,6 +117,14 @@ async def test_tts_stream_session_create(client):
 
 async def test_vad_analyze_mock(client):
     files = {"file": ("test.pcm", b"\x00" * 3200, "audio/wav")}
+    r = await client.post("/v1/vad/analyze", files=files)
+    assert r.status_code == 200
+    data = r.json()
+    assert "is_speech" in data
+
+
+async def test_vad_analyze_accepts_48k_stereo_wav(client):
+    files = {"file": ("test.wav", _wav_silence(), "audio/wav")}
     r = await client.post("/v1/vad/analyze", files=files)
     assert r.status_code == 200
     data = r.json()

@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 import httpx
 
 from ...app.settings import AsrConfig
+from ...common.audio_codec import normalize_audio_for_inference
 from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
     InvalidSessionError,
@@ -410,6 +411,17 @@ class AsrService:
                 resp = await client.get(data["audio_url"])
                 resp.raise_for_status()
                 audio = resp.content
+                content_type = resp.headers.get("content-type")
+                filename = str(resp.url.path)
+
+            normalized = await asyncio.to_thread(
+                normalize_audio_for_inference,
+                audio,
+                input_sample_rate=16000,
+                target_sample_rate=self.get_audio_config().sample_rate,
+                filename=filename,
+                content_type=content_type,
+            )
 
             await self._job_store.update(job_id, progress=50.0)
             record = await self._job_store.get(job_id)
@@ -418,8 +430,8 @@ class AsrService:
 
             backend = await self._ensure_backend(data.get("model"))
             result = await backend.recognize(
-                audio=audio,
-                sample_rate=16000,
+                audio=normalized.pcm,
+                sample_rate=normalized.sample_rate,
                 language=data.get("language", "auto"),
                 punctuation=True,
             )
