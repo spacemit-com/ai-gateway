@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from spacemit_ai_gateway.common.errors import InvalidSessionError
+from spacemit_ai_gateway.app.settings import AsrConfig
+from spacemit_ai_gateway.common.errors import InvalidSessionError, ModelUnknown
+from spacemit_ai_gateway.common.sessions import SessionStore
 from spacemit_ai_gateway.domains.asr.schemas import RecognizeParams, StreamSessionRequest
+from spacemit_ai_gateway.domains.asr.service import AsrService
 
 
 async def test_recognize_returns_text(asr_service):
@@ -48,3 +51,28 @@ async def test_healthz_ready(asr_service):
     h = await asr_service.healthz()
     assert h["ready"] is True
     assert h["backend"] == "fake-asr"
+
+
+def test_get_models_respects_configured_backends():
+    service = AsrService(
+        {},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-allow-list"),
+        config=AsrConfig(backend="sensevoice", backends=["sensevoice"]),
+    )
+
+    assert [model.id for model in service.get_models()] == ["sensevoice"]
+
+
+async def test_load_rejects_unconfigured_backend():
+    service = AsrService(
+        {},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-allow-list"),
+        config=AsrConfig(backend="sensevoice", backends=["sensevoice"]),
+    )
+
+    with pytest.raises(ModelUnknown) as exc_info:
+        await service.load_model("qwen3-asr")
+
+    assert exc_info.value.details == {"available": ["sensevoice"]}

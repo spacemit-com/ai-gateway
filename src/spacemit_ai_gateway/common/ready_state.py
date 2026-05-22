@@ -1,6 +1,7 @@
 """Backend 就绪状态枚举。
 
 用于 healthz 汇报 backend 生命周期：
+- IDLE: 服务在线，但模型尚未加载
 - INITIALIZING: 构造函数里（极短暂）
 - WARMING_UP: 构造成功，正在预热模型/建立连接
 - READY: 可以正常服务
@@ -12,6 +13,7 @@ from enum import Enum
 
 
 class BackendReadyState(str, Enum):
+    IDLE = "idle"
     INITIALIZING = "initializing"
     WARMING_UP = "warming_up"
     READY = "ready"

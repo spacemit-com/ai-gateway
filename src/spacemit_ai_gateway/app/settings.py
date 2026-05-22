@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings
 
 class AppConfig(BaseModel):
     name: str = "SpacemiT AI Gateway"
-    version: str = "0.1.6"
+    version: str = "0.1.7"
     host: str = "0.0.0.0"
     port: int = 18790
     debug: bool = False
@@ -91,9 +91,13 @@ def _default_tts_models() -> list[dict[str, Any]]:
     ]
 
 
+def _default_tts_backends() -> list[str]:
+    return ["matcha_zh", "matcha_en", "matcha_zh_en", "kokoro"]
+
+
 class TtsConfig(BaseModel):
     backend: str = "matcha_zh_en"
-    backends: Optional[list[str]] = None
+    backends: Optional[list[str]] = Field(default_factory=_default_tts_backends)
     model_dir: Optional[str] = None
     models: list[dict[str, Any]] = Field(default_factory=_default_tts_models)
     speed: float = 1.0

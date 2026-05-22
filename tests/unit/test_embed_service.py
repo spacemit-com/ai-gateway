@@ -36,9 +36,10 @@ def server():
     tmp_db = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
     tmp_db.close()
     db_path = tmp_db.name
+    tmp_dir = tempfile.TemporaryDirectory(prefix="spacemit-ai-gateway-embed-test-")
 
-    # 读取 base.yaml，覆盖 embed.backend=null 和 embed.storage.db_path，避免自动加载模型
-    # 同时禁用 llm.backend，避免 /v1/models 返回 LLM 模型
+    # 读取 base.yaml，覆盖各域 db_path，避免测试进程写入用户 cache DB。
+    # 同时禁用 llm.backend，避免 /v1/models 返回 LLM 模型。
     base_yaml_path = PROJECT_ROOT / "configs" / "base.yaml"
     with open(base_yaml_path, "r", encoding="utf-8") as f:
         cfg = _yaml.safe_load(f) or {}
@@ -48,6 +49,12 @@ def server():
     cfg["embed"]["storage"]["db_path"] = db_path
     cfg.setdefault("llm", {})
     cfg["llm"]["backend"] = None
+    cfg["llm"].setdefault("storage", {})
+    cfg["llm"]["storage"]["db_path"] = str(Path(tmp_dir.name) / "llm.sqlite")
+    cfg.setdefault("rerank", {})
+    cfg["rerank"]["backend"] = None
+    cfg["rerank"].setdefault("storage", {})
+    cfg["rerank"]["storage"]["db_path"] = str(Path(tmp_dir.name) / "rerank.sqlite")
 
     tmp_cfg = tempfile.NamedTemporaryFile(
         mode="w", suffix=".yaml", delete=False
@@ -88,6 +95,7 @@ def server():
     proc.wait()
     Path(db_path).unlink(missing_ok=True)
     Path(tmp_cfg.name).unlink(missing_ok=True)
+    tmp_dir.cleanup()
 
 
 @pytest.fixture(scope="module")
@@ -123,7 +131,7 @@ def test_list_models_returns_presets(client):
 def test_embed_healthz_not_running(client):
     r = client.get("/v1/embed/healthz")
     assert_ok(r)
-    assert r.json()["status"] == "failed"
+    assert r.json()["status"] == "idle"
 
 
 def test_openai_models_empty_when_no_model_loaded(client):

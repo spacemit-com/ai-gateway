@@ -10,18 +10,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ...common.audio_codec import encode_audio
 from ...app.settings import TtsConfig
-from ...common.ready_state import BackendReadyState
+from ...common.audio_codec import encode_audio
+from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
     InvalidSessionError,
     ModelAlreadyLoaded,
     ModelNotLoaded,
     ModelUnknown,
-    ModelUnloadForbidden,
     TaskNotFound,
 )
 from ...common.lexicon_store import LexiconStore
+from ...common.ready_state import BackendReadyState
 from ...common.schemas import ModelInfo, VoiceInfo
 from ...common.sessions import SessionStore
 from ...common.task_store import TaskStatus, TaskStore
@@ -48,6 +48,24 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+_STATIC_VOICES = {
+    "matcha_zh": [VoiceInfo(id="default", name="默认中文", language="zh", gender="female")],
+    "matcha_en": [VoiceInfo(id="default", name="Default English", language="en", gender="female")],
+    "matcha_zh_en": [VoiceInfo(id="default", name="中英混合", language="zh-en", gender="female")],
+    "kokoro": [
+        VoiceInfo(id="zf_xiaobei", name="小贝（中文女声）", language="zh", gender="female"),
+        VoiceInfo(id="zm_yunxi", name="云希（中文男声）", language="zh", gender="male"),
+        VoiceInfo(id="af_heart", name="Heart (English female)", language="en", gender="female"),
+    ],
+}
+
+_STATIC_SAMPLE_RATES = {
+    "matcha_zh": 22050,
+    "matcha_en": 22050,
+    "matcha_zh_en": 16000,
+    "kokoro": 24000,
+}
+
 
 class TtsService:
     def __init__(
@@ -60,7 +78,15 @@ class TtsService:
         self._backends = backends
         self._default = default
         self._sessions = session_store
-        self._tts_config = config
+        self._tts_config = config or TtsConfig()
+        self._allowed_backends = resolve_allowed_backends(
+            self._tts_config.backends or list(TTS_REGISTRY),
+            default,
+            TTS_REGISTRY,
+            self._backends,
+        )
+        if self._allowed_backends and self._default not in self._allowed_backends:
+            self._default = self._allowed_backends[0]
         self._task_store: TaskStore = TaskStore(namespace="tts-task")
         self._lexicon_store: LexiconStore = LexiconStore(namespace="tts")
         self._task_files: dict[str, Path] = {}
@@ -73,10 +99,50 @@ class TtsService:
             "started_at": time.time(),
         }
         self._engine_pending_restart = False
+        self._load_lock = asyncio.Lock()
 
     @property
     def backend(self) -> TtsBackend:
         return self._backends[self._default]
+
+    def _model_id(self, model: Optional[str] = None) -> str:
+        return model or self._default
+
+    async def _shutdown_loaded_backends(self) -> None:
+        for name, backend in list(self._backends.items()):
+            logger.info("unloading TTS backend '%s' before loading another model", name)
+            self._backends.pop(name, None)
+            await backend.shutdown()
+
+    async def _ensure_backend(self, model: Optional[str] = None) -> TtsBackend:
+        name = self._model_id(model)
+        async with self._load_lock:
+            existing = self._backends.get(name)
+            if existing is not None and existing.state.is_serving:
+                return existing
+
+            if name not in self._allowed_backends:
+                raise ModelUnknown(
+                    f"model '{name}' not allowed",
+                    details={"available": self._allowed_backends},
+                )
+
+            cls = TTS_REGISTRY.get(name)
+            if cls is None:
+                raise ModelUnknown(
+                    f"model '{name}' not registered",
+                    details={"available": self._allowed_backends},
+                )
+
+            await self._shutdown_loaded_backends()
+            cfg = self._tts_config.model_copy(update={"backend": name})
+            logger.info("loading TTS backend '%s' on demand", name)
+            backend = cls(cfg)
+            await backend.warmup()
+            self._backends[name] = backend
+            self._default = name
+            await self._sync_lexicon_to_backends()
+            return backend
 
     def _get_backend(self, model: Optional[str] = None) -> TtsBackend:
         name = model or self._default
@@ -92,7 +158,7 @@ class TtsService:
         self, req: SynthesizeRequest
     ) -> tuple[bytes, str, dict]:
         """返回 (audio_bytes, content_type, metadata)。"""
-        backend = self._get_backend(req.model)
+        backend = await self._ensure_backend(req.model)
         try:
             result = await backend.synthesize(
                 text=req.text,
@@ -123,7 +189,7 @@ class TtsService:
     async def create_stream_session(
         self, req: StreamSessionRequest
     ) -> StreamSessionResponse:
-        self._get_backend(req.model)
+        await self._ensure_backend(req.model)
         record = await self._sessions.create(
             data={
                 "model": req.model,
@@ -154,7 +220,7 @@ class TtsService:
         if record is None:
             raise InvalidSessionError("session_id expired or invalid")
 
-        backend = self._get_backend(record.data.get("model"))
+        backend = await self._ensure_backend(record.data.get("model"))
         effective_voice = voice_id or record.data.get("voice_id")
         speed = float(record.data.get("speed", 1.0))
         return await backend.open_stream(
@@ -163,34 +229,58 @@ class TtsService:
 
     def get_voices(self) -> List[VoiceInfo]:
         voices = []
-        for backend in self._backends.values():
-            voices.extend(backend.get_voices())
+        for model_id in self._allowed_backends:
+            backend = self._backends.get(model_id)
+            if backend is not None:
+                voices.extend(backend.get_voices())
+            else:
+                voices.extend(_STATIC_VOICES.get(model_id, []))
         return voices
 
     def get_models(self) -> List[ModelInfo]:
         models = []
-        for backend in self._backends.values():
-            models.extend(backend.get_models())
+        for model_id in self._allowed_backends:
+            backend = self._backends.get(model_id)
+            if backend is not None:
+                entries = backend.get_models()
+                for entry in entries:
+                    if entry.id == model_id:
+                        models.append(entry)
+                continue
+            voices = _STATIC_VOICES.get(model_id, [])
+            models.append(ModelInfo(
+                id=model_id,
+                name=f"TTS {model_id}",
+                capabilities=["tts", "streaming"],
+                languages=[v.language for v in voices],
+                sample_rate=_STATIC_SAMPLE_RATES.get(model_id),
+                loaded=False,
+            ))
         return models
 
     async def healthz(self) -> dict:
-        default_backend = self._backends[self._default]
-        state = default_backend.state
+        default_backend = self._backends.get(self._default)
+        state = default_backend.state if default_backend else BackendReadyState.IDLE
         return HealthResponse(
             ready=state.is_serving,
             state=state.value,
-            backend=default_backend.backend_name,
+            backend=default_backend.backend_name if default_backend else self._default,
         ).model_dump()
 
     # ---- params ----
 
     def get_params(self) -> TtsParamsResponse:
-        data = self._backends[self._default].get_params()
+        backend = self._backends.get(self._default)
+        data = backend.get_params() if backend else {
+            "speed": self._tts_config.speed if self._tts_config else 1.0,
+            "pitch": self._tts_config.pitch if self._tts_config else 1.0,
+            "volume": self._tts_config.volume if self._tts_config else 1.0,
+            "emotion_strength": None,
+        }
         return TtsParamsResponse(**data)
 
     def update_params(self, patch: TtsParamsPatch) -> TtsParamsResponse:
-        backend = self._backends[self._default]
-        cfg = backend._config
+        cfg = self._backends[self._default]._config if self._default in self._backends else self._tts_config
         if patch.speed is not None:
             cfg.speed = patch.speed
         if patch.pitch is not None:
@@ -202,7 +292,16 @@ class TtsService:
     # ---- engine ----
 
     def get_engine_config(self) -> TtsEngineResponse:
-        data = self._backends[self._default].get_engine_config()
+        backend = self._backends.get(self._default)
+        data = backend.get_engine_config() if backend else {
+            "threads": 1,
+            "sample_rate": (
+                self._tts_config.sample_rate
+                if self._tts_config and self._tts_config.sample_rate is not None
+                else _STATIC_SAMPLE_RATES.get(self._default)
+            ),
+            "cache_policy": None,
+        }
         return TtsEngineResponse(**data, pending_restart=self._engine_pending_restart)
 
     def update_engine_config(self, patch: TtsEnginePatch) -> TtsEngineResponse:
@@ -227,10 +326,10 @@ class TtsService:
     # ---- info ----
 
     def get_info(self) -> TtsInfoResponse:
-        default_backend = self._backends[self._default]
+        default_backend = self._backends.get(self._default)
         return TtsInfoResponse(
-            initialized=default_backend.is_ready,
-            backend=default_backend.backend_name,
+            initialized=bool(default_backend and default_backend.is_ready),
+            backend=default_backend.backend_name if default_backend else self._default,
             num_voices=len(self.get_voices()),
             default_model=self._default,
             backends_loaded=list(self._backends.keys()),
@@ -242,19 +341,7 @@ class TtsService:
         existing = self._backends.get(model_id)
         if existing is not None and existing.state == BackendReadyState.READY:
             raise ModelAlreadyLoaded(f"model '{model_id}' already loaded")
-        cls = TTS_REGISTRY.get(model_id)
-        if cls is None:
-            raise ModelUnknown(
-                f"model '{model_id}' not registered",
-                details={"available": list(TTS_REGISTRY.keys())},
-            )
-        cfg = self._tts_config.model_copy(update={"backend": model_id}) if self._tts_config else None
-        backend = cls(cfg)
-        await backend.warmup()
-        if existing is not None:
-            logger.info("replacing degraded backend '%s' (state=%s)", model_id, existing.state.value)
-            await existing.shutdown()
-        self._backends[model_id] = backend
+        backend = await self._ensure_backend(model_id)
         return {"loaded": True, "model_id": model_id, "state": backend.state.value}
 
     async def unload_model(self, model_id: str) -> dict:
@@ -263,25 +350,22 @@ class TtsService:
                 f"model '{model_id}' not loaded",
                 details={"available": list(self._backends.keys())},
             )
-        if model_id == self._default:
-            raise ModelUnloadForbidden(f"cannot unload default model '{model_id}'")
         backend = self._backends.pop(model_id)
         await backend.shutdown()
         return {"unloaded": True, "model_id": model_id}
 
-    def switch_default(self, model_id: str) -> dict:
-        if model_id not in self._backends:
-            raise ModelNotLoaded(
-                f"model '{model_id}' not loaded",
-                details={"available": list(self._backends.keys())},
-            )
+    async def switch_default(self, model_id: str) -> dict:
+        await self._ensure_backend(model_id)
         self._default = model_id
         return {"switched": True, "default_model_id": model_id}
+
+    async def shutdown(self) -> None:
+        await self._shutdown_loaded_backends()
 
     # ---- tasks ----
 
     async def submit_task(self, req: TaskSubmitRequest) -> TaskSubmitResponse:
-        self._get_backend(req.model)
+        await self._ensure_backend(req.model)
         record = await self._task_store.create(data=req.model_dump())
         asyncio.create_task(self._run_task(record.task_id))
         return TaskSubmitResponse(task_id=record.task_id, status="PENDING")
@@ -294,7 +378,7 @@ class TtsService:
                 return
             data = record.data
 
-            backend = self._get_backend(data.get("model"))
+            backend = await self._ensure_backend(data.get("model"))
             result = await backend.synthesize(
                 text=data["text"],
                 voice_id=data.get("voice_id"),

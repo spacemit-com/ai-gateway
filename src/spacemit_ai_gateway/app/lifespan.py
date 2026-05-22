@@ -1,12 +1,11 @@
 """应用生命周期装配。
 
 职责：
-- 用 build_*_backends 工厂实例化 ASR/TTS 多 backend（按 config.backends 预载）
-- VAD 单 backend 不变
+- 启动时只装配 service，不实例化 ASR/TTS/VAD 模型 backend
 - ASR/TTS 各自独立 SessionStore（VAD 无状态不需要）
 - 装配 service + stream handler 到 app.state
-- 默认 ASR/TTS backend 同步 warmup 后再接受流量，其它 backend 后台 warmup
-- 关闭时 cancel warmup、并行 await backend.shutdown()
+- LLM/Embed/Rerank 只初始化模型 DB，不启动默认模型
+- 关闭时释放已按需加载的 backend
 """
 
 from __future__ import annotations
@@ -17,9 +16,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from ..common.backend_selection import select_default_backend
 from ..common.event_store import EventStore
 from ..common.sessions import SessionStore
-from ..domains.asr.adapters import build_asr_backends
+from ..domains.asr.adapters import ASR_REGISTRY
 from ..domains.asr.service import AsrService
 from ..domains.asr.stream import AsrStreamHandler
 from ..domains.llm.adapters import build_llm_backends
@@ -28,10 +28,10 @@ from ..domains.embed.adapters import build_embed_backends
 from ..domains.embed.service import EmbedService
 from ..domains.rerank.adapters import build_rerank_backends
 from ..domains.rerank.service import RerankService
-from ..domains.tts.adapters import build_tts_backends
+from ..domains.tts.adapters import TTS_REGISTRY
 from ..domains.tts.service import TtsService
 from ..domains.tts.stream import TtsStreamHandler
-from ..domains.vad.adapters import build_vad_backends
+from ..domains.vad.adapters import VAD_REGISTRY
 from ..domains.vad.service import VadService
 from ..domains.vad.stream import VadStreamHandler
 try:
@@ -50,9 +50,6 @@ async def lifespan(app: FastAPI):
     logger.info("启动 %s v%s", settings.app.name, settings.app.version)
     logger.info("监听 %s:%s", settings.app.host, settings.app.port)
 
-    asr_backends = build_asr_backends(settings.asr)
-    tts_backends = build_tts_backends(settings.tts)
-    vad_backends = build_vad_backends(settings.vad)
     llm_backends = build_llm_backends(settings.llm)
     embed_backends = build_embed_backends(settings.embed)
     rerank_backends = build_rerank_backends(settings.rerank)
@@ -64,25 +61,28 @@ async def lifespan(app: FastAPI):
         ttl_seconds=settings.tts.stream.session_ttl_s, namespace="tts"
     )
 
-    asr_default = settings.asr.backend
-    if asr_default not in asr_backends:
-        asr_default = next(iter(asr_backends))
+    asr_default = select_default_backend(
+        settings.asr.backend, settings.asr.backends, ASR_REGISTRY
+    )
+    if asr_default != settings.asr.backend:
         logger.warning(
-            "asr.backend '%s' not in loaded backends, falling back to '%s'",
+            "asr.backend '%s' not allowed or registered, falling back to '%s'",
             settings.asr.backend, asr_default,
         )
-    tts_default = settings.tts.backend
-    if tts_default not in tts_backends:
-        tts_default = next(iter(tts_backends))
+    tts_default = select_default_backend(
+        settings.tts.backend, settings.tts.backends, TTS_REGISTRY
+    )
+    if tts_default != settings.tts.backend:
         logger.warning(
-            "tts.backend '%s' not in loaded backends, falling back to '%s'",
+            "tts.backend '%s' not allowed or registered, falling back to '%s'",
             settings.tts.backend, tts_default,
         )
-    vad_default = settings.vad.backend
-    if vad_default not in vad_backends:
-        vad_default = next(iter(vad_backends))
+    vad_default = select_default_backend(
+        settings.vad.backend, settings.vad.backends, VAD_REGISTRY
+    )
+    if vad_default != settings.vad.backend:
         logger.warning(
-            "vad.backend '%s' not in loaded backends, falling back to '%s'",
+            "vad.backend '%s' not allowed or registered, falling back to '%s'",
             settings.vad.backend, vad_default,
         )
     llm_default = settings.llm.backend
@@ -109,9 +109,9 @@ async def lifespan(app: FastAPI):
 
     event_store = EventStore()
 
-    asr_service = AsrService(asr_backends, asr_default, asr_store, config=settings.asr)
-    tts_service = TtsService(tts_backends, tts_default, tts_store, config=settings.tts)
-    vad_service = VadService(vad_backends, vad_default, config=settings.vad)
+    asr_service = AsrService({}, asr_default, asr_store, config=settings.asr)
+    tts_service = TtsService({}, tts_default, tts_store, config=settings.tts)
+    vad_service = VadService({}, vad_default, config=settings.vad)
     llm_service = LLMService(llm_backends, llm_default, config=settings.llm)
     await llm_service.initialize()
     embed_service = EmbedService(embed_backends, embed_default, config=settings.embed)
@@ -143,53 +143,24 @@ async def lifespan(app: FastAPI):
     app.state.tts_stream_handler = TtsStreamHandler(tts_service)
     app.state.vad_stream_handler = VadStreamHandler(vad_service)
 
-    default_asr_backend = asr_backends[asr_default]
-    default_tts_backend = tts_backends[tts_default]
-    background_asr_backends = [
-        backend for name, backend in asr_backends.items() if name != asr_default
-    ]
-    background_warmup_backends = (
-        background_asr_backends
-        + list(vad_backends.values())
-        + list(llm_backends.values())
-        + list(embed_backends.values())
-        + list(rerank_backends.values())
-    )
-    all_backends = [default_asr_backend, default_tts_backend] + background_warmup_backends
-
-    logger.info("[lifespan] warming up ASR before accepting traffic")
-    await _warmup_all([default_asr_backend])
-    logger.info("[lifespan] warming up default TTS before accepting traffic")
-    await _warmup_all([default_tts_backend])
-    app.state.warmup_task = asyncio.create_task(
-        _warmup_all(background_warmup_backends),
-        name="spacemit-ai-gateway-warmup",
-    )
-
-    asr_names = list(asr_backends.keys())
-    tts_names = list(tts_backends.keys())
-    vad_names = list(vad_backends.keys())
     logger.info(
-        "[lifespan] ready — asr=%s tts=%s vad=%s (non-ASR/TTS warmup running in background)",
-        asr_names,
-        tts_names,
-        vad_names,
+        "[lifespan] ready — models load lazily (asr=%s tts=%s vad=%s)",
+        asr_default,
+        tts_default,
+        vad_default,
     )
 
     try:
         yield
     finally:
         logger.info("关闭 SpacemiT AI Gateway...")
-        task = getattr(app.state, "warmup_task", None)
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-
         await asyncio.gather(
-            *(b.shutdown() for b in all_backends),
+            asr_service.shutdown(),
+            tts_service.shutdown(),
+            vad_service.shutdown(),
+            llm_service.shutdown(),
+            embed_service.shutdown(),
+            rerank_service.shutdown(),
             return_exceptions=True,
         )
         if vision_api is not None:
@@ -199,16 +170,3 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 logger.warning("[lifespan] vision shutdown error: %s", exc)
         logger.info("SpacemiT AI Gateway 已关闭")
-
-
-async def _warmup_all(backends) -> None:
-    results = await asyncio.gather(
-        *(b.warmup() for b in backends),
-        return_exceptions=True,
-    )
-    for backend, r in zip(backends, results):
-        name = backend.backend_name
-        if isinstance(r, Exception):
-            logger.warning("[warmup] %s failed: %s", name, r)
-        else:
-            logger.info("[warmup] %s ready", name)

@@ -45,8 +45,9 @@ def server():
     tmp_db = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
     tmp_db.close()
     db_path = tmp_db.name
+    tmp_dir = tempfile.TemporaryDirectory(prefix="spacemit-ai-gateway-llm-test-")
 
-    # 读取 base.yaml，覆盖 llm.backend=null 和 llm.storage.db_path，避免自动加载模型
+    # 读取 base.yaml，覆盖各域 db_path，避免测试进程写入用户 cache DB。
     base_yaml_path = PROJECT_ROOT / "configs" / "base.yaml"
     with open(base_yaml_path, "r", encoding="utf-8") as f:
         cfg = _yaml.safe_load(f) or {}
@@ -58,8 +59,12 @@ def server():
     # 禁用 embed 和 rerank 的自动加载
     cfg.setdefault("embed", {})
     cfg["embed"]["backend"] = None
+    cfg["embed"].setdefault("storage", {})
+    cfg["embed"]["storage"]["db_path"] = str(Path(tmp_dir.name) / "embed.sqlite")
     cfg.setdefault("rerank", {})
     cfg["rerank"]["backend"] = None
+    cfg["rerank"].setdefault("storage", {})
+    cfg["rerank"]["storage"]["db_path"] = str(Path(tmp_dir.name) / "rerank.sqlite")
 
     tmp_cfg = tempfile.NamedTemporaryFile(
         mode="w", suffix=".yaml", delete=False
@@ -100,6 +105,7 @@ def server():
     proc.wait()
     Path(db_path).unlink(missing_ok=True)
     Path(tmp_cfg.name).unlink(missing_ok=True)
+    tmp_dir.cleanup()
 
 
 @pytest.fixture(scope="module")
@@ -127,8 +133,8 @@ def test_healthz(client):
     assert_ok(r)
     body = r.json()
     assert "domains" in body
-    # LLM 域无模型时应为 failed（正常初始状态）
-    assert body["domains"]["llm"]["state"] == "failed"
+    # LLM 域无模型时应为 idle（服务在线，模型按需加载）
+    assert body["domains"]["llm"]["state"] == "idle"
 
 
 def test_list_models_returns_presets(client):
@@ -144,7 +150,7 @@ def test_list_models_returns_presets(client):
 def test_llm_healthz_not_running(client):
     r = client.get("/v1/llm/healthz")
     assert_ok(r)
-    assert r.json()["status"] == "failed"
+    assert r.json()["status"] == "idle"
 
 
 def test_openai_models_empty_when_no_model_loaded(client):
@@ -616,7 +622,7 @@ def test_unload_and_status(client, loaded_model_a):
     assert_ok(r)
     r = client.get("/v1/llm/healthz")
     assert_ok(r)
-    assert r.json()["status"] == "failed"
+    assert r.json()["status"] == "idle"
     # 重新加载并切换供后续 switch 测试使用
     client.post("/v1/llm/models/load", json={"model": loaded_model_a}, timeout=120)
     client.post("/v1/llm/models/switch", json={"model": loaded_model_a}, timeout=10)

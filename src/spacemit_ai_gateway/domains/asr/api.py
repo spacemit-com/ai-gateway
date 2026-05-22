@@ -186,7 +186,7 @@ async def switch_model(
     body: ModelSwitchRequest,
     service: AsrService = Depends(get_asr_service),
 ) -> ModelSwitchResponse:
-    data = service.switch_default(body.model_id)
+    data = await service.switch_default(body.model_id)
     return ModelSwitchResponse(**data)
 
 

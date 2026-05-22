@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
+from spacemit_ai_gateway.app.settings import VadConfig
+from spacemit_ai_gateway.common.errors import ModelUnknown
+from spacemit_ai_gateway.domains.vad.service import VadService
+
 
 async def test_analyze(vad_service):
     resp = await vad_service.analyze(b"\x00" * 3200, sample_rate=16000)
@@ -25,3 +31,26 @@ async def test_healthz_ready(vad_service):
     h = await vad_service.healthz()
     assert h["ready"] is True
     assert h["backend"] == "fake-vad"
+
+
+def test_get_models_respects_configured_backends():
+    service = VadService(
+        {},
+        "silero",
+        config=VadConfig(backend="silero", backends=["silero"]),
+    )
+
+    assert [model.id for model in service.get_models()] == ["silero"]
+
+
+async def test_load_rejects_unconfigured_backend():
+    service = VadService(
+        {},
+        "silero",
+        config=VadConfig(backend="silero", backends=["silero"]),
+    )
+
+    with pytest.raises(ModelUnknown) as exc_info:
+        await service.load_model("unknown-vad")
+
+    assert exc_info.value.details == {"available": ["silero"]}

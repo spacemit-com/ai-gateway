@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import AsyncGenerator, List
 
 import httpx
 import numpy as np
 import pytest
 import pytest_asyncio
+import yaml
 
 from spacemit_ai_gateway.common.ready_state import BackendReadyState
 from spacemit_ai_gateway.common.schemas import ModelInfo, VoiceInfo
@@ -235,13 +237,28 @@ def vad_service(fake_vad_backend) -> VadService:
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
+async def client(tmp_path, monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None]:
     """直连 app。ASGITransport 不会自动跑 lifespan，所以这里显式进入
     `app.router.lifespan_context` 来 trigger startup / shutdown，让
     `app.state.*_service` 被装配。"""
+    from spacemit_ai_gateway.app.settings import get_settings, load_yaml_config
+
+    config = copy.deepcopy(load_yaml_config())
+    for domain in ("llm", "embed", "rerank"):
+        storage = config[domain]["storage"]
+        storage["db_path"] = str(tmp_path / domain / "db.sqlite")
+
+    config_path = tmp_path / "base.yaml"
+    config_path.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setenv("SPACEMIT_AI_GATEWAY_CONFIG", str(config_path))
+    get_settings.cache_clear()
+
     from spacemit_ai_gateway.app.main import app as real_app
 
-    async with real_app.router.lifespan_context(real_app):
-        transport = httpx.ASGITransport(app=real_app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
+    try:
+        async with real_app.router.lifespan_context(real_app):
+            transport = httpx.ASGITransport(app=real_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        get_settings.cache_clear()

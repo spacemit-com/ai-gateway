@@ -93,7 +93,7 @@ async def switch_model(
     body: ModelSwitchRequest,
     service: VadService = Depends(get_vad_service),
 ) -> ModelSwitchResponse:
-    data = service.switch_default(body.model_id)
+    data = await service.switch_default(body.model_id)
     return ModelSwitchResponse(**data)
 
 

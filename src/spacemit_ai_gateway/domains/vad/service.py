@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Dict, List, Optional
 
 from ...app.settings import VadConfig
+from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
     ModelAlreadyLoaded,
     ModelNotLoaded,
     ModelUnknown,
-    ModelUnloadForbidden,
 )
 from ...common.ready_state import BackendReadyState
 from ...common.schemas import ModelInfo
@@ -43,7 +44,15 @@ class VadService:
     ):
         self._backends = backends
         self._default = default
-        self._config = config
+        self._config = config or VadConfig()
+        self._allowed_backends = resolve_allowed_backends(
+            self._config.backends,
+            default,
+            VAD_REGISTRY,
+            self._backends,
+        )
+        if self._allowed_backends and self._default not in self._allowed_backends:
+            self._default = self._allowed_backends[0]
         self._event_store = None
         self._stats = {
             "total_requests": 0,
@@ -52,10 +61,49 @@ class VadService:
             "started_at": time.time(),
         }
         self._engine_pending_restart = False
+        self._load_lock = asyncio.Lock()
 
     @property
     def backend(self) -> VadBackend:
         return self._backends[self._default]
+
+    def _model_id(self, model: Optional[str] = None) -> str:
+        return model or self._default
+
+    async def _shutdown_loaded_backends(self) -> None:
+        for name, backend in list(self._backends.items()):
+            logger.info("unloading VAD backend '%s' before loading another model", name)
+            self._backends.pop(name, None)
+            await backend.shutdown()
+
+    async def _ensure_backend(self, model: Optional[str] = None) -> VadBackend:
+        name = self._model_id(model)
+        async with self._load_lock:
+            existing = self._backends.get(name)
+            if existing is not None and existing.state.is_serving:
+                return existing
+
+            if name not in self._allowed_backends:
+                raise ModelUnknown(
+                    f"model '{name}' not allowed",
+                    details={"available": self._allowed_backends},
+                )
+
+            cls = VAD_REGISTRY.get(name)
+            if cls is None:
+                raise ModelUnknown(
+                    f"model '{name}' not registered",
+                    details={"available": self._allowed_backends},
+                )
+
+            await self._shutdown_loaded_backends()
+            cfg = self._config.model_copy(update={"backend": name})
+            logger.info("loading VAD backend '%s' on demand", name)
+            backend = cls(cfg)
+            await backend.warmup()
+            self._backends[name] = backend
+            self._default = name
+            return backend
 
     def _get_backend(self, model: Optional[str] = None) -> VadBackend:
         name = model or self._default
@@ -69,7 +117,8 @@ class VadService:
 
     async def analyze(self, audio: bytes, sample_rate: int) -> AnalyzeResponse:
         try:
-            a = await self.backend.analyze(audio, sample_rate)
+            backend = await self._ensure_backend()
+            a = await backend.analyze(audio, sample_rate)
         except Exception:
             self._stats["total_errors"] += 1
             raise
@@ -86,7 +135,8 @@ class VadService:
 
     async def segment(self, audio: bytes, sample_rate: int) -> SegmentsResponse:
         start = time.perf_counter()
-        segments, duration_ms = await self.backend.segment(audio, sample_rate)
+        backend = await self._ensure_backend()
+        segments, duration_ms = await backend.segment(audio, sample_rate)
         processing_ms = (time.perf_counter() - start) * 1000
 
         speech_duration = sum(s.end_ms - s.start_ms for s in segments)
@@ -103,27 +153,39 @@ class VadService:
         )
 
     async def open_stream(self, sample_rate: int) -> VadStreamSession:
-        return await self.backend.open_stream(sample_rate)
+        backend = await self._ensure_backend()
+        return await backend.open_stream(sample_rate)
 
     def get_models(self) -> List[ModelInfo]:
         models = []
-        for name, backend in self._backends.items():
+        for name in self._allowed_backends:
+            backend = self._backends.get(name)
             models.append(ModelInfo(
                 id=name,
-                name=backend.backend_name,
-                loaded=backend.is_ready,
+                name=backend.backend_name if backend else name,
+                loaded=bool(backend and backend.is_ready),
             ))
         return models
 
     def get_params(self) -> ParamsResponse:
-        return ParamsResponse(**self.backend.get_params())
+        backend = self._backends.get(self._default)
+        if backend:
+            return ParamsResponse(**backend.get_params())
+        return ParamsResponse(
+            trigger_threshold=self._config.trigger_threshold if self._config else 0.5,
+            stop_threshold=self._config.stop_threshold if self._config else 0.35,
+            min_speech_ms=self._config.min_speech_ms if self._config else 250,
+            max_silence_ms=self._config.max_silence_ms if self._config else 500,
+            sample_rate=self._config.sample_rate if self._config else 16000,
+        )
 
     async def healthz(self) -> dict:
-        state = self.backend.state
+        backend = self._backends.get(self._default)
+        state = backend.state if backend else BackendReadyState.IDLE
         return HealthResponse(
             ready=state.is_serving,
             state=state.value,
-            backend=self.backend.backend_name,
+            backend=backend.backend_name if backend else self._default,
         ).model_dump()
 
     # ---- model management ----
@@ -132,19 +194,7 @@ class VadService:
         existing = self._backends.get(model_id)
         if existing is not None and existing.state == BackendReadyState.READY:
             raise ModelAlreadyLoaded(f"model '{model_id}' already loaded")
-        cls = VAD_REGISTRY.get(model_id)
-        if cls is None:
-            raise ModelUnknown(
-                f"model '{model_id}' not registered",
-                details={"available": list(VAD_REGISTRY.keys())},
-            )
-        cfg = self._config.model_copy(update={"backend": model_id}) if self._config else None
-        backend = cls(cfg)
-        await backend.warmup()
-        if existing is not None:
-            logger.info("replacing degraded backend '%s' (state=%s)", model_id, existing.state.value)
-            await existing.shutdown()
-        self._backends[model_id] = backend
+        backend = await self._ensure_backend(model_id)
         return {"loaded": True, "model_id": model_id, "state": backend.state.value}
 
     async def unload_model(self, model_id: str) -> dict:
@@ -153,25 +203,19 @@ class VadService:
                 f"model '{model_id}' not loaded",
                 details={"available": list(self._backends.keys())},
             )
-        if model_id == self._default:
-            raise ModelUnloadForbidden(f"cannot unload default model '{model_id}'")
         backend = self._backends.pop(model_id)
         await backend.shutdown()
         return {"unloaded": True, "model_id": model_id}
 
-    def switch_default(self, model_id: str) -> dict:
-        if model_id not in self._backends:
-            raise ModelNotLoaded(
-                f"model '{model_id}' not loaded",
-                details={"available": list(self._backends.keys())},
-            )
+    async def switch_default(self, model_id: str) -> dict:
+        await self._ensure_backend(model_id)
         self._default = model_id
         return {"switched": True, "default_model_id": model_id}
 
     # ---- params PATCH ----
 
     def update_params(self, patch: VadParamsPatch) -> ParamsResponse:
-        cfg = self.backend._config
+        cfg = self._backends[self._default]._config if self._default in self._backends else self._config
         if patch.trigger_threshold is not None:
             cfg.trigger_threshold = patch.trigger_threshold
         if patch.stop_threshold is not None:
@@ -185,11 +229,16 @@ class VadService:
     # ---- audio ----
 
     def get_audio_config(self) -> VadAudioResponse:
-        data = self.backend.get_audio_config()
+        backend = self._backends.get(self._default)
+        data = backend.get_audio_config() if backend else {
+            "sample_rate": self._config.sample_rate if self._config else 16000,
+            "bit_depth": 16,
+            "denoise": False,
+        }
         return VadAudioResponse(**data)
 
     def update_audio_config(self, patch: VadAudioPatch) -> VadAudioResponse:
-        cfg = self.backend._config
+        cfg = self._backends[self._default]._config if self._default in self._backends else self._config
         if patch.sample_rate is not None:
             cfg.sample_rate = patch.sample_rate
         return self.get_audio_config()
@@ -197,7 +246,12 @@ class VadService:
     # ---- engine ----
 
     def get_engine_config(self) -> VadEngineResponse:
-        data = self.backend.get_engine_config()
+        backend = self._backends.get(self._default)
+        data = backend.get_engine_config() if backend else {
+            "threads": 1,
+            "npu_priority": None,
+            "memory_limit": None,
+        }
         return VadEngineResponse(**data, pending_restart=self._engine_pending_restart)
 
     def update_engine_config(self, patch: VadEnginePatch) -> VadEngineResponse:
@@ -221,9 +275,13 @@ class VadService:
     # ---- info ----
 
     def get_info(self) -> VadInfoResponse:
+        backend = self._backends.get(self._default)
         return VadInfoResponse(
-            initialized=self.backend.is_ready,
-            backend=self.backend.backend_name,
+            initialized=bool(backend and backend.is_ready),
+            backend=backend.backend_name if backend else self._default,
             default_model=self._default,
             backends_loaded=list(self._backends.keys()),
         )
+
+    async def shutdown(self) -> None:
+        await self._shutdown_loaded_backends()

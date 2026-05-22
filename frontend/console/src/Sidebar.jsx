@@ -4,15 +4,16 @@ const { useState, useEffect } = React;
 function Sidebar({ page, setPage }) {
   const { Icon, asrApi, ttsApi, vadApi, visionApi, llmApi, t } = window;
   const [health, setHealth] = useState({ asr: null, tts: null, vad: null, vision: null, llm: null });
+  const serviceOnline = (r) => !!r && (r.ready || r.state === 'idle' || r.state === 'warming_up');
 
   useEffect(() => {
     const poll = async () => {
       const [a, tt, v, vis, llm] = await Promise.all([
-        asrApi.health().then(r => !!r.ready).catch(() => false),
-        ttsApi.health().then(r => !!r.ready).catch(() => false),
-        vadApi.health().then(r => !!r.ready).catch(() => false),
+        asrApi.health().then(serviceOnline).catch(() => false),
+        ttsApi.health().then(serviceOnline).catch(() => false),
+        vadApi.health().then(serviceOnline).catch(() => false),
         visionApi.health().then(r => !!r.readiness).catch(() => false),
-        llmApi.health().then(r => r.status === 'ready' || r.status === 'ok').catch(() => false),
+        llmApi.health().then(r => r.status === 'ready' || r.status === 'ok' || r.status === 'idle').catch(() => false),
       ]);
       setHealth({ asr: a, tts: tt, vad: v, vision: vis, llm });
     };

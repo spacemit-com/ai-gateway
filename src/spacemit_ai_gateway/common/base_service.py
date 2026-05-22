@@ -85,7 +85,6 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         await self._db.commit()
         await self._reset_stale_status()
         await self._sync_preset_models()
-        await self._autoload_default_model()
 
     async def _reset_stale_status(self) -> None:
         """重启后清理 loading/loaded 状态（旧进程已死）。"""
@@ -118,40 +117,6 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             )
         await self._db.commit()
 
-    async def _autoload_default_model(self) -> None:
-        default = self.settings.default_model
-        if not default:
-            return
-        row = await self._get_model(default)
-        if not row:
-            logger.warning("[autoload] default_model '%s' not found in DB", default)
-            return
-        row = await self._sync_file_status(row)
-        if row["status"] == ModelStatus.AVAILABLE and row["source_type"] == "local_url":
-            logger.info("[autoload] default_model '%s' file not found, starting background download", default)
-            asyncio.create_task(self._download_then_load(default), name=f"autoload-{default}")
-            return
-        if row["status"] == ModelStatus.DOWNLOADING:
-            logger.info("[autoload] default_model '%s' is downloading, skipping", default)
-            return
-        try:
-            await self.switch(default)
-            logger.info("[autoload] default_model '%s' loaded and active", default)
-        except Exception as e:
-            logger.warning("[autoload] failed to load default_model '%s': %s", default, e)
-
-    async def _download_then_load(self, model: str) -> None:
-        try:
-            await self.download(model)
-            task = self._download_tasks.get(model)
-            if task:
-                await task
-            logger.info("[autoload] download complete for '%s', loading...", model)
-            await self.switch(model)
-            logger.info("[autoload] '%s' loaded and active", model)
-        except Exception as e:
-            logger.warning("[autoload] download+load failed for '%s': %s", model, e)
-
     async def warmup(self) -> None:
         if self._db is None:
             await self.initialize()
@@ -173,7 +138,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if self._db is None:
             state = BackendReadyState.INITIALIZING
         elif self._current_model is None:
-            state = BackendReadyState.FAILED
+            state = BackendReadyState.IDLE
         else:
             source_type = self._current_source_type
             if source_type == "remote":
@@ -415,10 +380,14 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         # 并发保护：必须在 is_model_running 检查之前，防止竞态条件
         if model in self._loading_events:
             await self._loading_events[model].wait()
-            return
+            row = await self._get_model(model)
+            if row and row["status"] == ModelStatus.LOADED:
+                return
+            raise RuntimeError(f"Model '{model}' failed to load")
 
         if backend_impl.is_model_running(model):
-            return  # 已运行，幂等
+            await self._set_status(model, ModelStatus.LOADED)
+            return
 
         if source_type != "remote":
             if not local_path:
@@ -432,7 +401,20 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             await self._set_status(model, ModelStatus.LOADING)
             merged_args = self.settings.default_args + (extra_args or [])
             await backend_impl.start_model(model, Path(local_path), merged_args)
+            adapter = backend_impl.get_adapter(model)
+            if adapter is not None:
+                await adapter.warmup()
             await self._set_status(model, ModelStatus.LOADED)
+        except Exception:
+            try:
+                await backend_impl.stop_model(model)
+            except Exception:
+                logger.warning("Failed to stop model '%s' after load failure", model, exc_info=True)
+            if local_path and Path(local_path).exists():
+                await self._set_status(model, ModelStatus.DOWNLOADED, 1.0)
+            else:
+                await self._reset_missing_local_file(model)
+            raise
         finally:
             event.set()
             self._loading_events.pop(model, None)
@@ -511,14 +493,16 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         若模型未运行则自动加载（不切换 _current_model 指针）。
         """
         model_id = None
+        requested_model = False
         try:
             data = json.loads(request_body)
             model_id = data.get("model")
+            requested_model = bool(model_id)
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
         if not model_id:
-            model_id = self._current_model
+            model_id = self._current_model or self.settings.default_model
             if not model_id:
                 raise RuntimeError("No model loaded")
 
@@ -529,6 +513,9 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         # 统一走 _do_load，确保模型真的在运行（幂等操作）
         logger.info("Ensuring model '%s' is ready for inference request", model_id)
         await self._do_load(model_id)
+        if self._current_model is None or not requested_model:
+            self._current_model = model_id
+            self._current_source_type = row["source_type"]
 
         return model_id, row["source_type"]
 

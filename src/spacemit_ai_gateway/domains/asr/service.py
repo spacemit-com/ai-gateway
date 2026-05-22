@@ -19,20 +19,20 @@ from typing import Dict, List, Optional
 
 import httpx
 
+from ...app.settings import AsrConfig
+from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
     InvalidSessionError,
     JobNotFound,
     ModelAlreadyLoaded,
     ModelNotLoaded,
     ModelUnknown,
-    ModelUnloadForbidden,
 )
 from ...common.lexicon_store import LexiconStore
 from ...common.ready_state import BackendReadyState
 from ...common.schemas import ModelInfo
 from ...common.sessions import SessionStore
 from ...common.task_store import TaskStatus, TaskStore
-from ...app.settings import AsrConfig
 from .adapters import ASR_REGISTRY, AsrBackend, AsrStreamSession, RecognitionResult
 from .schemas import (
     AsrAudioPatch,
@@ -61,6 +61,21 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+_ASR_MODEL_INFO = {
+    "sensevoice": {
+        "name": "SenseVoice",
+        "capabilities": ["multilingual", "streaming"],
+        "languages": ["zh", "en", "ja", "ko", "yue", "auto"],
+        "sample_rate": 16000,
+    },
+    "qwen3-asr": {
+        "name": "Qwen3-ASR",
+        "capabilities": ["multilingual"],
+        "languages": ["zh", "en", "ja", "ko", "yue", "auto"],
+        "sample_rate": 16000,
+    },
+}
+
 
 class AsrService:
     def __init__(
@@ -74,7 +89,15 @@ class AsrService:
     ):
         self._backends = backends
         self._default = default
-        self._config = config
+        self._config = config or AsrConfig()
+        self._allowed_backends = resolve_allowed_backends(
+            self._config.backends,
+            default,
+            ASR_REGISTRY,
+            self._backends,
+        )
+        if self._allowed_backends and self._default not in self._allowed_backends:
+            self._default = self._allowed_backends[0]
         self._sessions = session_store
         self._job_store = job_store or TaskStore(namespace="asr-job")
         self._lexicon_store = lexicon_store or LexiconStore(namespace="asr")
@@ -87,10 +110,50 @@ class AsrService:
             "started_at": time.time(),
         }
         self._engine_pending_restart = False
+        self._load_lock = asyncio.Lock()
 
     @property
     def backend(self) -> AsrBackend:
         return self._backends[self._default]
+
+    def _model_id(self, model: Optional[str] = None) -> str:
+        return model or self._default
+
+    async def _shutdown_loaded_backends(self) -> None:
+        for name, backend in list(self._backends.items()):
+            logger.info("unloading ASR backend '%s' before loading another model", name)
+            self._backends.pop(name, None)
+            await backend.shutdown()
+
+    async def _ensure_backend(self, model: Optional[str] = None) -> AsrBackend:
+        name = self._model_id(model)
+        async with self._load_lock:
+            existing = self._backends.get(name)
+            if existing is not None and existing.state.is_serving:
+                return existing
+
+            if name not in self._allowed_backends:
+                raise ModelUnknown(
+                    f"model '{name}' not allowed",
+                    details={"available": self._allowed_backends},
+                )
+
+            cls = ASR_REGISTRY.get(name)
+            if cls is None:
+                raise ModelUnknown(
+                    f"model '{name}' not registered",
+                    details={"available": self._allowed_backends},
+                )
+
+            await self._shutdown_loaded_backends()
+            cfg = self._config.model_copy(update={"backend": name})
+            logger.info("loading ASR backend '%s' on demand", name)
+            backend = cls(cfg)
+            await backend.warmup()
+            self._backends[name] = backend
+            self._default = name
+            await self._sync_hotwords_to_backends()
+            return backend
 
     def _get_backend(self, model: Optional[str] = None) -> AsrBackend:
         name = model or self._default
@@ -105,7 +168,7 @@ class AsrService:
     async def recognize(
         self, audio: bytes, params: RecognizeParams
     ) -> RecognizeResponse:
-        backend = self._get_backend(params.model)
+        backend = await self._ensure_backend(params.model)
         hotwords = (
             [w.strip() for w in params.hotwords.split(",") if w.strip()]
             if params.hotwords
@@ -133,7 +196,7 @@ class AsrService:
     async def create_stream_session(
         self, req: StreamSessionRequest
     ) -> StreamSessionResponse:
-        self._get_backend(req.model)
+        await self._ensure_backend(req.model)
         record = await self._sessions.create(
             data={
                 "model": req.model,
@@ -168,7 +231,7 @@ class AsrService:
         if record is None:
             raise InvalidSessionError("session_id expired or invalid")
 
-        backend = self._get_backend(record.data.get("model"))
+        backend = await self._ensure_backend(record.data.get("model"))
 
         effective_sr = sample_rate or int(record.data.get("sample_rate", 16000))
         effective_lang = language or str(record.data.get("language", "auto"))
@@ -184,37 +247,60 @@ class AsrService:
 
     def get_models(self) -> List[ModelInfo]:
         models = []
-        for backend in self._backends.values():
-            models.extend(backend.get_models())
+        for name in self._allowed_backends:
+            backend = self._backends.get(name)
+            if backend is not None:
+                models.extend(backend.get_models())
+                continue
+            info = _ASR_MODEL_INFO.get(name, {})
+            models.append(ModelInfo(
+                id=name,
+                name=info.get("name", name),
+                capabilities=info.get("capabilities", []),
+                languages=info.get("languages", []),
+                sample_rate=info.get("sample_rate"),
+                loaded=False,
+            ))
         return models
 
     def get_languages(self) -> LanguagesResponse:
         all_langs: set[str] = set()
-        for backend in self._backends.values():
-            all_langs.update(backend.get_supported_languages())
+        for name in self._allowed_backends:
+            backend = self._backends.get(name)
+            if backend is not None:
+                all_langs.update(backend.get_supported_languages())
+                continue
+            info = _ASR_MODEL_INFO.get(name)
+            if info:
+                all_langs.update(info["languages"])
         return LanguagesResponse(
             languages=sorted(all_langs),
             default="auto",
         )
 
     async def healthz(self) -> dict:
-        default_backend = self._backends[self._default]
-        state = default_backend.state
+        default_backend = self._backends.get(self._default)
+        state = default_backend.state if default_backend else BackendReadyState.IDLE
         return HealthResponse(
             ready=state.is_serving,
             state=state.value,
-            backend=default_backend.backend_name,
+            backend=default_backend.backend_name if default_backend else self._default,
         ).model_dump()
 
     # ---- params ----
 
     def get_params(self) -> AsrParamsResponse:
-        data = self._backends[self._default].get_params()
+        backend = self._backends.get(self._default)
+        data = backend.get_params() if backend else {
+            "language": self._config.language if self._config else "auto",
+            "punctuation": self._config.punctuation if self._config else True,
+            "hotword_weight": None,
+            "itn": None,
+        }
         return AsrParamsResponse(**data)
 
     def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
-        backend = self._backends[self._default]
-        cfg = backend._config
+        cfg = self._backends[self._default]._config if self._default in self._backends else self._config
         if patch.language is not None:
             cfg.language = patch.language
         if patch.punctuation is not None:
@@ -224,7 +310,13 @@ class AsrService:
     # ---- audio ----
 
     def get_audio_config(self) -> AsrAudioResponse:
-        data = self._backends[self._default].get_audio_config()
+        backend = self._backends.get(self._default)
+        data = backend.get_audio_config() if backend else {
+            "sample_rate": 16000,
+            "vad_threshold": None,
+            "denoise": False,
+            "agc": False,
+        }
         return AsrAudioResponse(**data)
 
     def update_audio_config(self, patch: AsrAudioPatch) -> AsrAudioResponse:
@@ -233,7 +325,12 @@ class AsrService:
     # ---- engine ----
 
     def get_engine_config(self) -> AsrEngineResponse:
-        data = self._backends[self._default].get_engine_config()
+        backend = self._backends.get(self._default)
+        data = backend.get_engine_config() if backend else {
+            "num_threads": 1,
+            "device": self._config.provider if self._config else "cpu",
+            "power_mode": None,
+        }
         return AsrEngineResponse(**data, pending_restart=self._engine_pending_restart)
 
     def update_engine_config(self, patch: AsrEnginePatch) -> AsrEngineResponse:
@@ -258,10 +355,10 @@ class AsrService:
     # ---- info ----
 
     def get_info(self) -> AsrInfoResponse:
-        default_backend = self._backends[self._default]
+        default_backend = self._backends.get(self._default)
         return AsrInfoResponse(
-            initialized=default_backend.is_ready,
-            backend=default_backend.backend_name,
+            initialized=bool(default_backend and default_backend.is_ready),
+            backend=default_backend.backend_name if default_backend else self._default,
             model=self._default,
             backends_loaded=list(self._backends.keys()),
         )
@@ -272,19 +369,7 @@ class AsrService:
         existing = self._backends.get(model_id)
         if existing is not None and existing.state == BackendReadyState.READY:
             raise ModelAlreadyLoaded(f"model '{model_id}' already loaded")
-        cls = ASR_REGISTRY.get(model_id)
-        if cls is None:
-            raise ModelUnknown(
-                f"model '{model_id}' not registered",
-                details={"available": list(ASR_REGISTRY.keys())},
-            )
-        cfg = self._config.model_copy(update={"backend": model_id}) if self._config else None
-        backend = cls(cfg)
-        await backend.warmup()
-        if existing is not None:
-            logger.info("replacing degraded backend '%s' (state=%s)", model_id, existing.state.value)
-            await existing.shutdown()
-        self._backends[model_id] = backend
+        backend = await self._ensure_backend(model_id)
         return {"loaded": True, "model_id": model_id, "state": backend.state.value}
 
     async def unload_model(self, model_id: str) -> dict:
@@ -293,25 +378,22 @@ class AsrService:
                 f"model '{model_id}' not loaded",
                 details={"available": list(self._backends.keys())},
             )
-        if model_id == self._default:
-            raise ModelUnloadForbidden(f"cannot unload default model '{model_id}'")
         backend = self._backends.pop(model_id)
         await backend.shutdown()
         return {"unloaded": True, "model_id": model_id}
 
-    def switch_default(self, model_id: str) -> dict:
-        if model_id not in self._backends:
-            raise ModelNotLoaded(
-                f"model '{model_id}' not loaded",
-                details={"available": list(self._backends.keys())},
-            )
+    async def switch_default(self, model_id: str) -> dict:
+        await self._ensure_backend(model_id)
         self._default = model_id
         return {"switched": True, "default_model_id": model_id}
+
+    async def shutdown(self) -> None:
+        await self._shutdown_loaded_backends()
 
     # ---- jobs ----
 
     async def submit_job(self, req: JobSubmitRequest) -> JobSubmitResponse:
-        self._get_backend(req.model)
+        await self._ensure_backend(req.model)
         record = await self._job_store.create(data=req.model_dump())
         asyncio.create_task(self._run_job(record.task_id))
         return JobSubmitResponse(job_id=record.task_id, status="PENDING")
@@ -334,7 +416,7 @@ class AsrService:
             if record is None or record.status == TaskStatus.CANCELLED:
                 return
 
-            backend = self._get_backend(data.get("model"))
+            backend = await self._ensure_backend(data.get("model"))
             result = await backend.recognize(
                 audio=audio,
                 sample_rate=16000,

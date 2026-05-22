@@ -14,9 +14,11 @@ async def test_global_healthz(client):
     r = await client.get("/healthz")
     assert r.status_code == 200
     data = r.json()
+    assert data["status"] == "ok"
     assert "domains" in data
     for dom in ("asr", "tts", "vad"):
         assert dom in data["domains"]
+        assert data["domains"][dom]["state"] == "idle"
 
 
 async def test_openapi_paths(client):

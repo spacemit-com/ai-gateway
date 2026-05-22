@@ -2,7 +2,7 @@
 
 app:
   name: "SpacemiT AI Gateway"
-  version: "0.1.6"
+  version: "0.1.7"
   host: "0.0.0.0"
   port: 18790
   debug: false
@@ -18,7 +18,7 @@ limits:
 
 asr:
   backend: "sensevoice"        # 默认后端: sensevoice | qwen3-asr
-  # backends: ["sensevoice", "qwen3-asr"]  # 预载多后端，请求 model 字段路由
+  # backends: ["sensevoice", "qwen3-asr"]  # 可用后端；启动不预载，请求或 /models/load 时加载
   model_dir: null              # null → ~/.cache/models/asr/<backend>
   models:
     - id: "sensevoice"
@@ -28,7 +28,7 @@ asr:
   language: "auto"
   punctuation: true
   provider: "spacemit"         # cpu | spacemit
-  warmup_audio_ms: 1000        # 启动时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
+  warmup_audio_ms: 1000        # 按需加载时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
   qwen3:
     endpoint: "http://127.0.0.1:8063/v1/chat/completions"
     model: "qwen3-asr"
@@ -40,6 +40,7 @@ asr:
 
 tts:
   backend: "matcha_zh_en"      # 默认后端: matcha_zh | matcha_en | matcha_zh_en | kokoro
+  backends: ["matcha_zh", "matcha_en", "matcha_zh_en", "kokoro"]  # 可切换后端；启动不预载
   # TTS 不预载多后端，避免同时占用多份声学模型/声码器内存；需要其它模型时调用 /v1/tts/models/load
   model_dir: null
   models:
@@ -74,8 +75,8 @@ logging:
 
 llm:
   backend: "qwen3-0.6b-q4_0"         # 默认后端
-  # backends: ["qwen3-0.6b-q4_0", "qwen3.5-2b-q4_0"]       # 预载多后端
-  default_args: ["--ctx-size", "4096", "--threads", "8", "--metrics", "--reasoning", "off"]
+  # backends: ["qwen3-0.6b-q4_0", "qwen3.5-2b-q4_0"]       # 可用后端；启动不预载
+  default_args: ["--ctx-size", "4096", "--threads", "8", "--metrics", "--reasoning-format", "none", "--reasoning-budget", "0"]
   port_pool:
     start: 18800
     end: 18900
@@ -129,7 +130,7 @@ llm:
 
 embed:
   backend: qwen3-embedding-0.6b-q4_0       # 默认后端（可选）
-  # backends: []                     # 预载多后端
+  # backends: []                     # 可用后端；启动不预载
   default_args: ["--embedding", "--threads", "8", "--metrics"]
   port_pool:
     start: 18800
@@ -152,7 +153,7 @@ embed:
 
 rerank:
   backend: qwen3-reranker-0.6b-q4_0                # 默认后端（可选）
-  # backends: []                     # 预载多后端
+  # backends: []                     # 可用后端；启动不预载
   default_args: ["--reranking", "--threads", "8", "--metrics"]
   port_pool:
     start: 18800

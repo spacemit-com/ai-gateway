@@ -90,20 +90,24 @@ function DashboardPage() {
           <table className="dm-table">
             <thead><tr><th>{t('服务')}</th><th>{t('端点')}</th><th>{t('状态')}</th><th>{t('后端')}</th><th>{t('状态码')}</th></tr></thead>
             <tbody>
-              {health.map(h => (
-                <tr key={h.name}>
-                  <td style={{ fontWeight: 500 }}>{h.name}</td>
-                  <td className="text-mono text-xs text-dim">127.0.0.1:{h.port}{h.path}</td>
-                  <td>
-                    <span className={`chip ${h.ready ? 'chip-accent' : ''}`}>
-                      <span className="status-dot" style={{ background: h.ready ? 'var(--accent)' : 'var(--danger)' }}/>
-                      {h.ready ? t('正常') : t('离线')}
-                    </span>
-                  </td>
-                  <td className="text-mono text-xs">{h.backend || '-'}</td>
-                  <td className="text-mono text-xs">{h.state || '-'}</td>
-                </tr>
-              ))}
+              {health.map(h => {
+                const idle = h.state === 'idle';
+                const online = h.ready || idle;
+                return (
+                  <tr key={h.name}>
+                    <td style={{ fontWeight: 500 }}>{h.name}</td>
+                    <td className="text-mono text-xs text-dim">127.0.0.1:{h.port}{h.path}</td>
+                    <td>
+                      <span className={`chip ${online ? 'chip-accent' : ''}`}>
+                        <span className="status-dot" style={{ background: online ? 'var(--accent)' : 'var(--danger)' }}/>
+                        {h.ready ? t('正常') : idle ? t('空闲') : t('离线')}
+                      </span>
+                    </td>
+                    <td className="text-mono text-xs">{h.backend || '-'}</td>
+                    <td className="text-mono text-xs">{h.state || '-'}</td>
+                  </tr>
+                );
+              })}
               {health.length === 0 && <tr><td colSpan={5} className="text-dim">{t('加载中…')}</td></tr>}
             </tbody>
           </table>

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from spacemit_ai_gateway.common.errors import InvalidSessionError
+from spacemit_ai_gateway.app.settings import TtsConfig
+from spacemit_ai_gateway.common.errors import InvalidSessionError, ModelUnknown
+from spacemit_ai_gateway.common.sessions import SessionStore
 from spacemit_ai_gateway.domains.tts.schemas import StreamSessionRequest, SynthesizeRequest
+from spacemit_ai_gateway.domains.tts.service import TtsService
 
 
 async def test_synthesize_returns_audio(tts_service):
@@ -40,3 +43,28 @@ async def test_healthz_ready(tts_service):
     h = await tts_service.healthz()
     assert h["ready"] is True
     assert h["backend"] == "fake-tts"
+
+
+def test_get_models_respects_configured_backends():
+    service = TtsService(
+        {},
+        "matcha_zh_en",
+        SessionStore(ttl_seconds=60, namespace="tts-allow-list"),
+        config=TtsConfig(backend="matcha_zh_en", backends=["matcha_zh_en"]),
+    )
+
+    assert [model.id for model in service.get_models()] == ["matcha_zh_en"]
+
+
+async def test_load_rejects_unconfigured_backend():
+    service = TtsService(
+        {},
+        "matcha_zh_en",
+        SessionStore(ttl_seconds=60, namespace="tts-allow-list"),
+        config=TtsConfig(backend="matcha_zh_en", backends=["matcha_zh_en"]),
+    )
+
+    with pytest.raises(ModelUnknown) as exc_info:
+        await service.load_model("kokoro")
+
+    assert exc_info.value.details == {"available": ["matcha_zh_en"]}
