@@ -80,6 +80,17 @@ def test_normalize_compressed_audio_requires_ffmpeg(monkeypatch):
         )
 
 
+def test_normalize_raw_pcm16_resample_requires_ffmpeg(monkeypatch):
+    monkeypatch.setattr(audio_codec.shutil, "which", lambda _: None)
+
+    with pytest.raises(AudioDecodeError, match="resampling requires ffmpeg"):
+        normalize_audio_for_inference(
+            np.arange(4800, dtype=np.int16).tobytes(),
+            input_sample_rate=48000,
+            target_sample_rate=16000,
+        )
+
+
 def test_normalize_rejects_invalid_raw_pcm16_size():
     with pytest.raises(AudioDecodeError, match="even number of bytes"):
         normalize_audio_for_inference(b"\x00", input_sample_rate=16000)

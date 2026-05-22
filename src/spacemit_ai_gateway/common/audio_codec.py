@@ -182,11 +182,9 @@ def _has_compressed_magic(data: bytes) -> bool:
 
 
 def _decode_with_ffmpeg(data: bytes, target_sample_rate: int) -> np.ndarray:
-    if shutil.which("ffmpeg") is None:
-        raise AudioDecodeError(
-            "compressed audio requires ffmpeg; install ffmpeg or upload PCM/WAV",
-            details={"dependency": "ffmpeg"},
-        )
+    _require_ffmpeg(
+        "compressed audio requires ffmpeg; install ffmpeg or upload PCM/WAV"
+    )
 
     cmd = [
         "ffmpeg",
@@ -206,6 +204,29 @@ def _decode_with_ffmpeg(data: bytes, target_sample_rate: int) -> np.ndarray:
         str(target_sample_rate),
         "pipe:1",
     ]
+    stdout = _run_ffmpeg(
+        cmd,
+        data,
+        timeout_message="ffmpeg audio decode timed out",
+        failure_message="ffmpeg failed to decode audio",
+        empty_message="decoded audio is empty",
+    )
+    return np.frombuffer(stdout, dtype=np.int16)
+
+
+def _require_ffmpeg(message: str) -> None:
+    if shutil.which("ffmpeg") is None:
+        raise AudioDecodeError(message, details={"dependency": "ffmpeg"})
+
+
+def _run_ffmpeg(
+    cmd: list[str],
+    data: bytes,
+    *,
+    timeout_message: str,
+    failure_message: str,
+    empty_message: str,
+) -> bytes:
     try:
         proc = subprocess.run(
             cmd,
@@ -216,17 +237,17 @@ def _decode_with_ffmpeg(data: bytes, target_sample_rate: int) -> np.ndarray:
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise AudioDecodeError("ffmpeg audio decode timed out") from exc
+        raise AudioDecodeError(timeout_message) from exc
 
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace").strip()
         raise AudioDecodeError(
-            "ffmpeg failed to decode audio",
+            failure_message,
             details={"stderr": stderr[-500:]},
         )
     if not proc.stdout:
-        raise AudioDecodeError("decoded audio is empty")
-    return np.frombuffer(proc.stdout, dtype=np.int16)
+        raise AudioDecodeError(empty_message)
+    return proc.stdout
 
 
 def _resample_pcm16(
@@ -236,17 +257,46 @@ def _resample_pcm16(
 ) -> np.ndarray:
     if source_sample_rate <= 0:
         raise AudioDecodeError(f"invalid source sample rate: {source_sample_rate}")
+    if target_sample_rate <= 0:
+        raise AudioDecodeError(f"invalid target sample rate: {target_sample_rate}")
     if source_sample_rate == target_sample_rate or pcm.size == 0:
         return pcm.astype(np.int16, copy=False)
 
-    target_size = int(round(pcm.size * target_sample_rate / source_sample_rate))
-    if target_size <= 0:
-        return np.empty(0, dtype=np.int16)
-
-    old_positions = np.arange(pcm.size, dtype=np.float64)
-    new_positions = np.linspace(0, pcm.size - 1, target_size, dtype=np.float64)
-    resampled = np.interp(new_positions, old_positions, pcm.astype(np.float32))
-    return np.clip(resampled, -32768, 32767).astype(np.int16)
+    _require_ffmpeg("PCM resampling requires ffmpeg")
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(source_sample_rate),
+        "-i",
+        "pipe:0",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sample_rate),
+        "pipe:1",
+    ]
+    stdout = _run_ffmpeg(
+        cmd,
+        pcm.astype(np.int16, copy=False).tobytes(),
+        timeout_message="ffmpeg audio resample timed out",
+        failure_message="ffmpeg failed to resample audio",
+        empty_message="resampled audio is empty",
+    )
+    return np.frombuffer(stdout, dtype=np.int16)
 
 
 def encode_wav(pcm_int16: np.ndarray, sample_rate: int) -> bytes:
