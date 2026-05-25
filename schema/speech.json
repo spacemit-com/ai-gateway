@@ -83,7 +83,7 @@
         "音频时长": "224.00 ms",
         "处理时间": "6.339 ms"
       },
-      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vad/silero.tar.gz",
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vad/silero/silero_vad.onnx",
       "plat": [
         "K3"
       ]
