@@ -49,6 +49,7 @@
         "处理时间": "232 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz.md5",
       "plat": [
         "K3"
       ]
@@ -84,6 +85,7 @@
         "处理时间": "6.339 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vad/silero/silero_vad.onnx",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vad/silero/silero_vad.onnx.md5",
       "plat": [
         "K3"
       ]
@@ -119,6 +121,7 @@
         "处理时间": "1608 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-en_US-ljspeech.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-en_US-ljspeech.tar.gz.md5",
       "plat": [
         "K3"
       ]
@@ -154,6 +157,7 @@
         "处理时间": "575 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-baker.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-baker.tar.gz.md5",
       "plat": [
         "K3"
       ]
@@ -189,6 +193,7 @@
         "处理时间": "542 ms"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz.md5",
       "plat": [
         "K3"
       ]

@@ -40,6 +40,7 @@
         "量化类型": "Q4_0"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-0.5b-instruct-q4_0.gguf",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-0.5b-instruct-q4_0.gguf.md5",
       "plat": [
         "K3"
       ]
@@ -70,6 +71,7 @@
         "量化类型": "Q4_0"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_0.gguf",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_0.gguf.md5",
       "plat": [
         "K3"
       ]
@@ -100,6 +102,7 @@
         "量化类型": "Q4_0"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-30B-A3B-Q4_0.gguf",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-30B-A3B-Q4_0.gguf.md5",
       "plat": [
         "K3"
       ]
@@ -130,6 +133,7 @@
         "量化类型": "Q4_0"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-0.8B-Q4_0.gguf",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-0.8B-Q4_0.gguf.md5",
       "plat": [
         "K3"
       ]
@@ -160,6 +164,7 @@
         "量化类型": "Q4_0"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-2B-Q4_0.gguf",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-2B-Q4_0.gguf.md5",
       "plat": [
         "K3"
       ]

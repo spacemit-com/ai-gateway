@@ -44,6 +44,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11n.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11n.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -75,6 +76,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11s.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11s.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -106,6 +108,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11m.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov11/yolo11m.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -137,6 +140,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -168,6 +172,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -199,6 +204,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -230,6 +236,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov5/yolov5_gesture.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov5/yolov5_gesture.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -266,6 +273,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov5-face/yolov5n-face_cut.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov5-face/yolov5n-face_cut.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -302,6 +310,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8n-pose.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8n-pose.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -333,6 +342,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8s-pose.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8s-pose.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -364,6 +374,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8m-pose.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_pose/yolov8m-pose.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -400,6 +411,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8n-seg.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8n-seg.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -431,6 +443,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8s-seg.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8s-seg.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -462,6 +475,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8m-seg.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8_seg/yolov8m-seg.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -498,6 +512,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/arcface/arcface_mobilefacenet_cut.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/arcface/arcface_mobilefacenet_cut.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -534,6 +549,7 @@
             "Quant": "INT8"
           },
           "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/resnet/resnet50.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/resnet/resnet50.q.onnx.md5",
           "plat": [
             "K3"
           ]
