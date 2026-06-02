@@ -1,65 +1,59 @@
-# SpacemiT AI Gateway 基础配置
-
 app:
-  name: "SpacemiT AI Gateway"
-  version: "0.1.8"
-  host: "0.0.0.0"
+  name: SpacemiT AI Gateway
+  version: 0.1.8
+  host: 0.0.0.0
   port: 18790
   debug: false
-
 auth:
-  enabled: false          # 默认关闭鉴权；需要时改为 true
-  api_keys: []            # enabled=true 时从环境变量或密钥管理服务获取
-  ip_whitelist: []        # enabled=true 时可配置 CIDR/IP 白名单
-  ip_whitelist_file: null # enabled=true 时可配置外部白名单文件，支持热加载
-
+  enabled: false
+  api_keys: []
+  ip_whitelist: []
+  ip_whitelist_file: null
 limits:
-  max_upload_bytes: 52428800  # 50 MB
-
+  max_upload_bytes: 52428800
 asr:
-  backend: "sensevoice"        # 默认后端: sensevoice | qwen3-asr
-  # backends: ["sensevoice", "qwen3-asr"]  # 可用后端；启动不预载，请求或 /models/load 时加载
-  model_dir: null              # null → ~/.cache/models/asr/<backend>
+  backend: sensevoice
+  model_dir: null
   models:
-    - id: "sensevoice"
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz"
-      archive_name: "sensevoice.tar.gz"
-      archive_subdir: "sensevoice"
-  language: "auto"
+  - id: sensevoice
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/asr/sensevoice.tar.gz
+    archive_name: sensevoice.tar.gz
+    archive_subdir: sensevoice
+  language: auto
   punctuation: true
-  provider: "spacemit"         # cpu | spacemit
-  warmup_audio_ms: 1000        # 按需加载时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
+  provider: spacemit
+  warmup_audio_ms: 1000
   qwen3:
-    endpoint: "http://127.0.0.1:8063/v1/chat/completions"
-    model: "qwen3-asr"
+    endpoint: http://127.0.0.1:8063/v1/chat/completions
+    model: qwen3-asr
     timeout: 60
   stream:
     session_ttl_s: 300
     event_queue_size: 64
     partial_results: true
-
 tts:
-  backend: "matcha_zh_en"      # 默认后端: matcha_zh | matcha_en | matcha_zh_en | kokoro
-  backends: ["matcha_zh", "matcha_en", "matcha_zh_en", "kokoro"]  # 可切换后端；启动不预载
-  # TTS 不预载多后端，避免同时占用多份声学模型/声码器内存；需要其它模型时调用 /v1/tts/models/load
+  backend: matcha_zh_en
+  backends:
+  - matcha_zh
+  - matcha_en
+  - matcha_zh_en
+  - kokoro
   model_dir: null
   models:
-    - id: "matcha_zh_en"
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz"
-      archive_name: "matcha-icefall-zh-en.tar.gz"
-      vocoder_name: "vocos-16khz-univ.q.onnx"
-      vocoder_url: "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.q.onnx"
+  - id: matcha_zh_en
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/tts/matcha-tts/matcha-icefall-zh-en.tar.gz
+    archive_name: matcha-icefall-zh-en.tar.gz
+    vocoder_name: vocos-16khz-univ.q.onnx
+    vocoder_url: https://archive.spacemit.com/spacemit-ai/model_zoo/tts/vocoder/vocos-16khz-univ.q.onnx
   speed: 1.0
   volume: 50.0
   pitch: 1.0
-  # sample_rate: 22050         # 不设则用 preset 默认（matcha_zh=22050, matcha_zh_en=16000, kokoro=24000）
-  default_format: "wav"        # wav | pcm
+  default_format: wav
   stream:
     session_ttl_s: 300
     event_queue_size: 64
-
 vad:
-  backend: "silero"
+  backend: silero
   model_dir: null
   trigger_threshold: 0.5
   stop_threshold: 0.35
@@ -68,130 +62,147 @@ vad:
   sample_rate: 16000
   stream:
     event_queue_size: 64
-
 logging:
-  level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 llm:
-  backend: "qwen3-0.6b-q4_0"         # 默认后端
-  # backends: ["qwen3-0.6b-q4_0", "qwen3.5-2b-q4_0"]       # 可用后端；启动不预载
-  default_args: ["--ctx-size", "4096", "--threads", "8", "--metrics", "--reasoning", "off"]
+  backend: qwen3-0.6b-q4_0
+  default_args:
+  - --ctx-size
+  - '4096'
+  - --threads
+  - '8'
+  - --metrics
+  - --reasoning
+  - 'off'
   port_pool:
     start: 18800
     end: 18900
   storage:
-    base_dir: "~/.cache/spacemit-ai-gateway/llm"
-    models_dir: "~/.cache/models/llm"
-    db_path: "~/.cache/spacemit-ai-gateway/llm/db.sqlite"
+    base_dir: ~/.cache/spacemit-ai-gateway/llm
+    models_dir: ~/.cache/models/llm
+    db_path: ~/.cache/spacemit-ai-gateway/llm/db.sqlite
   models:
-    - id: lfm2-24b-a2b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/LFM2-24B-A2B-Q4_0.gguf
-    - id: lfm2.5-1.2b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/LFM2.5-1.2B-Instruct-Q4_0.gguf
-    - id: qwen3-0.6b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_0.gguf
-    - id: qwen3-0.6b-q4_1
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_1.gguf
-    - id: qwen3-0.6b-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_K_M.gguf
-    - id: qwen3-1.7b-q8_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-1.7B-Q8_0.gguf
-    - id: qwen3-4b-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-4B-Q4_K_M.gguf
-    - id: qwen3-8b-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-8B-Q4_K_M.gguf
-    - id: qwen3-30b-a3b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-30B-A3B-Q4_0.gguf
-    - id: qwen3.5-0.8b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-0.8B-Q4_0.gguf
-    - id: qwen3.5-2b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-2B-Q4_0.gguf
-    - id: qwen3.5-4b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-4B-Q4_0.gguf
-    - id: smallthinker-4b-a0.6b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/SmallThinker-4B-A0.6B-Instruct.Q4_0.gguf
-    - id: deepseek-r1-distill-qwen-1.5b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/deepseek-r1-distill-qwen-1.5b-q4_0.gguf
-    - id: hy-mt1.5-1.8b-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/HY-MT1.5-1.8B-Q4_K_M.gguf
-    - id: glm-edge-1.5b-chat-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/glm-edge-1.5b-chat-q4_0.gguf
-    - id: qwen2.5-0.5b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-0.5b-instruct-q4_0.gguf
-    - id: qwen2.5-1.5b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-1.5b-instruct-q4_0.gguf
-    - id: qwen2.5-3b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-3b-instruct-q4_0.gguf
-    - id: qwen2.5-7b-instruct-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-7b-instruct-q4_0.gguf
-    - id: hy-mt1.5-1.8b-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/HY-MT1.5-1.8B-Q4_K_M.gguf
-
+  - id: lfm2-24b-a2b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/LFM2-24B-A2B-Q4_0.gguf
+  - id: lfm2.5-1.2b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/LFM2.5-1.2B-Instruct-Q4_0.gguf
+  - id: qwen3-0.6b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_0.gguf
+  - id: qwen3-0.6b-q4_1
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_1.gguf
+  - id: qwen3-0.6b-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-0.6B-Q4_K_M.gguf
+  - id: qwen3-1.7b-q8_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-1.7B-Q8_0.gguf
+  - id: qwen3-4b-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-4B-Q4_K_M.gguf
+  - id: qwen3-8b-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-8B-Q4_K_M.gguf
+  - id: qwen3-30b-a3b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3-30B-A3B-Q4_0.gguf
+  - id: qwen3.5-0.8b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-0.8B-Q4_0.gguf
+  - id: qwen3.5-2b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-2B-Q4_0.gguf
+  - id: qwen3.5-4b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/Qwen3.5-4B-Q4_0.gguf
+  - id: smallthinker-4b-a0.6b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/SmallThinker-4B-A0.6B-Instruct.Q4_0.gguf
+  - id: deepseek-r1-distill-qwen-1.5b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/deepseek-r1-distill-qwen-1.5b-q4_0.gguf
+  - id: hy-mt1.5-1.8b-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/HY-MT1.5-1.8B-Q4_K_M.gguf
+  - id: glm-edge-1.5b-chat-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/glm-edge-1.5b-chat-q4_0.gguf
+  - id: qwen2.5-0.5b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-0.5b-instruct-q4_0.gguf
+  - id: qwen2.5-1.5b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-1.5b-instruct-q4_0.gguf
+  - id: qwen2.5-3b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-3b-instruct-q4_0.gguf
+  - id: qwen2.5-7b-instruct-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/qwen2.5-7b-instruct-q4_0.gguf
+  - id: hy-mt1.5-1.8b-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/llm/HY-MT1.5-1.8B-Q4_K_M.gguf
 embed:
-  backend: qwen3-embedding-0.6b-q4_0       # 默认后端（可选）
-  # backends: []                     # 可用后端；启动不预载
-  default_args: ["--embedding", "--threads", "8", "--metrics"]
+  backend: qwen3-embedding-0.6b-q4_0
+  default_args:
+  - --embedding
+  - --threads
+  - '8'
+  - --metrics
   port_pool:
     start: 18800
     end: 18900
   storage:
-    base_dir: "~/.cache/spacemit-ai-gateway/embed"
-    models_dir: "~/.cache/models/embed"
-    db_path: "~/.cache/spacemit-ai-gateway/embed/db.sqlite"
+    base_dir: ~/.cache/spacemit-ai-gateway/embed
+    models_dir: ~/.cache/models/embed
+    db_path: ~/.cache/spacemit-ai-gateway/embed/db.sqlite
   models:
-    - id: bge-small-en-v1.5-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Bge-Small-En-V1.5-Q4_K_M.gguf
-    - id: bge-small-zh-v1.5-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Bge-Small-Zh-V1.5-Q4_K_M.gguf
-    - id: jina-embeddings-v5-text-small-retrieval-q4_k_m
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Jina-Embeddings-V5-Text-Small-Retrieval-Q4_K_M.gguf
-    - id: nomic-embed-text-v2-moe-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Nomic-Embed-Text-V2-Moe-Q4_0.gguf
-    - id: qwen3-embedding-0.6b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Qwen3-Embedding-0.6B-Q4_0.gguf
-
+  - id: bge-small-en-v1.5-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Bge-Small-En-V1.5-Q4_K_M.gguf
+  - id: bge-small-zh-v1.5-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Bge-Small-Zh-V1.5-Q4_K_M.gguf
+  - id: jina-embeddings-v5-text-small-retrieval-q4_k_m
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Jina-Embeddings-V5-Text-Small-Retrieval-Q4_K_M.gguf
+  - id: nomic-embed-text-v2-moe-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Nomic-Embed-Text-V2-Moe-Q4_0.gguf
+  - id: qwen3-embedding-0.6b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Qwen3-Embedding-0.6B-Q4_0.gguf
 rerank:
-  backend: qwen3-reranker-0.6b-q4_0                # 默认后端（可选）
-  # backends: []                     # 可用后端；启动不预载
-  default_args: ["--reranking", "--threads", "8", "--metrics"]
+  backend: qwen3-reranker-0.6b-q4_0
+  default_args:
+  - --reranking
+  - --threads
+  - '8'
+  - --metrics
   port_pool:
     start: 18800
     end: 18900
   storage:
-    base_dir: "~/.cache/spacemit-ai-gateway/rerank"
-    models_dir: "~/.cache/models/rerank"
-    db_path: "~/.cache/spacemit-ai-gateway/rerank/db.sqlite"
+    base_dir: ~/.cache/spacemit-ai-gateway/rerank
+    models_dir: ~/.cache/models/rerank
+    db_path: ~/.cache/spacemit-ai-gateway/rerank/db.sqlite
   models:
-    - id: bge-reranker-v2-m3-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Bge-Reranker-V2-M3-Q4_0.gguf
-    - id: qwen3-reranker-0.6b-q4_0
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Qwen3-Reranker-0.6B-Q4_0.gguf
-
+  - id: bge-reranker-v2-m3-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Bge-Reranker-V2-M3-Q4_0.gguf
+  - id: qwen3-reranker-0.6b-q4_0
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Qwen3-Reranker-0.6B-Q4_0.gguf
 vlm:
-  backend: "fastvlm-mm-0.5b-q4_1"         # 默认后端
-  # backends: ["fastvlm-mm-0.5b-q4_1", "qwen3.5-0.8b-vl-q4_0"]       # 可用后端；启动不预载
-  default_args: ["--ctx-size", "4096", "--threads", "8", "--reasoning", "off"]
+  backend: fastvlm-mm-0.5b-q4_1
+  default_args:
+  - --ctx-size
+  - '4096'
+  - --threads
+  - '8'
+  - --reasoning
+  - 'off'
   port_pool:
     start: 18800
     end: 18900
   storage:
-    base_dir: "~/.cache/spacemit-ai-gateway/vlm"
-    models_dir: "~/.cache/models/vlm"
-    db_path: "~/.cache/spacemit-ai-gateway/vlm/db.sqlite"
+    base_dir: ~/.cache/spacemit-ai-gateway/vlm
+    models_dir: ~/.cache/models/vlm
+    db_path: ~/.cache/spacemit-ai-gateway/vlm/db.sqlite
   models:
-    - id: fastvlm-mm-0.5b-q4_1
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4%5F1.tar.gz"
-      size: "766M"
-    - id: Qwen3.5-0.8B
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz"
-      size: "932M"
-    - id: Qwen3.5-2B
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz"
-      size: "2.6G"
-    - id: Qwen3.5-4B
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz"
-      size: "3.9G"
-    - id: qwen30ba3b-mm-q4_1
-      url: "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4%5F1.tar.gz"
-      size: "17.6G"
+  - id: fastvlm-mm-0.5b-q4_1
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4%5F1.tar.gz
+    size: 766M
+    local_dir: fastvlm-mm-0.5b-q4_1
+  - id: Qwen3.5-0.8B
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz
+    size: 932M
+    local_dir: Qwen3.5-0.8B
+  - id: Qwen3.5-2B
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz
+    size: 2.6G
+    local_dir: Qwen3.5-2B
+  - id: Qwen3.5-4B
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz
+    size: 3.9G
+    local_dir: Qwen3.5-4B
+  - id: qwen30ba3b-mm-q4_1
+    url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4%5F1.tar.gz
+    size: 17.6G
+    local_dir: qwen30ba3b-mm-q4_1

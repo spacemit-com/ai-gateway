@@ -167,8 +167,12 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             async with self._db.execute("SELECT id, status, local_path FROM models WHERE id = ?", (m["id"],)) as cur:
                 row = await cur.fetchone()
             url = m.get("url", "")
-            filename = url.split("/")[-1] if url else f"{m['id']}.gguf"
-            expected_path = self.settings.storage.models_path / filename
+            local_dir = m.get("local_dir")
+            if local_dir:
+                expected_path = self.settings.storage.models_path / local_dir
+            else:
+                filename = url.split("/")[-1] if url else f"{m['id']}.gguf"
+                expected_path = self.settings.storage.models_path / filename
             if row is None:
                 if expected_path.exists():
                     await self._db.execute(
@@ -263,9 +267,17 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         model = row["id"]
         local_path = row.get("local_path")
         if not local_path:
-            url = row.get("url", "")
-            if url:
-                local_path = str(self.settings.storage.models_path / url.split("/")[-1])
+            local_dir = None
+            for m in self.settings.preset_models:
+                if m["id"] == model:
+                    local_dir = m.get("local_dir")
+                    break
+            if local_dir:
+                local_path = str(self.settings.storage.models_path / local_dir)
+            else:
+                url = row.get("url", "")
+                if url:
+                    local_path = str(self.settings.storage.models_path / url.split("/")[-1])
         file_exists = bool(local_path and Path(local_path).exists())
         status = row["status"]
         active_statuses = (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING, ModelStatus.DOWNLOADING)
