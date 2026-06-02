@@ -24,11 +24,14 @@ class VlmBackendImpl(VlmBackend):
     async def start_model(self, model_id: str, model_path: Path, extra_args: list[str]) -> None:
         """Start llama-server for a VLM model, health-check, then register adapter."""
         adapter = VlmLlamaAdapter(host=self._config.host, default_args=self._config.default_args)
-        adapter.start(model_path, extra_args=extra_args)
-        ready = await adapter.health_check(timeout=120)
-        if not ready:
+        try:
+            adapter.start(model_path, extra_args=extra_args)
+            ready = await adapter.health_check(timeout=120)
+            if not ready:
+                raise RuntimeError(f"VLM llama-server failed to start for model '{model_id}'")
+        except Exception:
             adapter.stop()
-            raise RuntimeError(f"VLM llama-server failed to start for model '{model_id}'")
+            raise
         self._adapters[model_id] = adapter
 
     async def stop_model(self, model_id: str) -> None:
@@ -48,9 +51,6 @@ class VlmBackendImpl(VlmBackend):
 
     def unregister_remote(self, model_id: str) -> None:
         self._remote_adapters.pop(model_id, None)
-
-    async def proxy(self, path: str, request_body: bytes, headers: dict, stream: bool = False):
-        raise NotImplementedError("Use proxy_for(model_id) instead")
 
     async def proxy_for(self, model_id: str, source_type: str,
                         path: str, request_body: bytes, headers: dict, stream: bool = False):

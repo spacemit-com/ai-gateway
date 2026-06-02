@@ -34,7 +34,7 @@ async def test_vlm_remote_model_lifecycle(tmp_path):
         await service.switch("test-vlm-remote")
         assert service.get_current_model() == "test-vlm-remote"
         assert service.get_current_source_type() == "remote"
-        assert service.adapter is not None
+        assert service.adapter is None
 
         info = await service.healthz()
         assert info["ready"] is True

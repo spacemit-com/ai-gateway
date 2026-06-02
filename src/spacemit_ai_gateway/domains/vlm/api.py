@@ -5,7 +5,7 @@ import uuid
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ...gateway.auth import verify_api_key
 from .schemas import DeregisterRequest, LoadRequest, RegisterRequest, SwitchRequest, UnloadRequest
@@ -155,8 +155,17 @@ async def _proxy(path: str, request: Request, stream: bool):
     content = await response.aread()
     await response.aclose()
     await client.aclose()
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return Response(
+            content=content,
+            status_code=response.status_code,
+            media_type=response.headers.get("content-type", "application/octet-stream"),
+            headers={"X-Request-ID": request_id},
+        )
     return JSONResponse(
-        content=json.loads(content),
+        content=parsed,
         status_code=response.status_code,
         headers={"X-Request-ID": request_id},
     )
