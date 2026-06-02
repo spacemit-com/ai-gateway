@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 
-import cv2
+import numpy as np
 import yaml
 
 from .adapters.native import NativeAdapter, ServiceError
@@ -677,7 +677,7 @@ class ModelRegistry:
 
         if instance is not None:
             self._adapter.set_timing_options(instance, enabled=True, print_to_stdout=True)
-            self._warmup(instance)
+            self._warmup(instance, runtime_config)
 
         with self._lock:
             self._models[model_id] = managed
@@ -694,15 +694,16 @@ class ModelRegistry:
             engine_state=engine_state,
         )
 
-    def _warmup(self, instance: Any) -> None:
-        """Run one warmup inference using the model's default test image."""
+    def _warmup(self, instance: Any, config_path: str) -> None:
+        """Run one warmup inference using synthetic BGR input sized from config."""
         try:
-            default_image = instance.get_default_image()
-            if not default_image:
-                return
-            img_bgr = cv2.imread(default_image)
-            if img_bgr is None:
-                return
+            width, height = 640, 640
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            size = cfg.get("image_size")
+            if isinstance(size, (list, tuple)) and len(size) >= 2:
+                width, height = int(size[0]), int(size[1])
+            img_bgr = np.zeros((max(height, 1), max(width, 1), 3), dtype=np.uint8)
             self._adapter.infer_image(instance, img_bgr)
         except Exception:
             pass
