@@ -458,10 +458,22 @@ pytest tests/
 
 **模型生命周期**：`available` → `downloading` → `downloaded` → `loading` → `loaded`
 
-**协议兼容路由**（无 `/v1/llm` 前缀，直接挂载在根路径）：
-- `POST /v1/chat/completions` — OpenAI 兼容
-- `POST /v1/messages` — Anthropic 兼容
-- `GET /v1/models` — OpenAI 模型列表
+### VLM 视觉语言模型 (`/v1/vlm`)
+
+基于 OpenAI 兼容 VLM 接口的远程代理实现，当前 Gateway 内部仅支持通过 `source_type=remote` 注册外部 VLM 服务。`model-zoo/vlm` 中的 VLM 推理组件可作为该远程服务源。
+
+| 类别 | 方法 | 端点 | 说明 |
+|------|------|------|------|
+| 推理 | POST | `/chat/completions` | OpenAI 兼容视觉语言推理（支持 SSE 流式） |
+| 模型 | GET | `/models` | 模型列表 |
+| 模型 | POST | `/models/register` | 注册远程 VLM 模型 |
+| 模型 | POST | `/models/deregister` | 注销 VLM 模型 |
+| 模型 | POST | `/models/load` | 加载 / 激活模型 |
+| 模型 | POST | `/models/unload` | 卸载模型 |
+| 模型 | POST | `/models/switch` | 切换活跃模型 |
+| 运维 | GET | `/healthz` | VLM 健康检查 |
+
+**注意**：Gateway 当前不支持本地 VLM 模型启动，必须通过 `api_base_url` 注册远程 OpenAI 兼容 VLM 推理服务。
 
 ### Embed 文本嵌入 (`/v1/embed`)
 

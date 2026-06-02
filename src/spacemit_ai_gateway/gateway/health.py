@@ -4,7 +4,11 @@ from fastapi import APIRouter, Request
 
 from ..common.ready_state import BackendReadyState
 from ..domains.llm import service as llm_service
-from ..domains.vision import api as vision_api
+
+try:
+    from ..domains.vision import api as vision_api
+except Exception:
+    vision_api = None  # type: ignore[assignment]
 
 router = APIRouter()
 
@@ -38,8 +42,22 @@ async def healthz(request: Request):
         llm_info = llm_service.healthz()
     domains["llm"] = llm_info
 
+    vlm_svc = getattr(request.app.state, "vlm_service", None)
+    if vlm_svc is not None:
+        domains["vlm"] = await vlm_svc.healthz()
+    else:
+        domains["vlm"] = {"ready": False, "state": "uninitialized"}
+
+    if getattr(request.app.state, "vlm_service", None) is not None:
+        domains["vlm"] = await request.app.state.vlm_service.healthz()
+    else:
+        domains["vlm"] = {"ready": False, "state": "uninitialized"}
+
     # vision 当前为独立域实现（自管理 registry/service），从 vision 模块读取健康摘要。
-    vision_info = vision_api.domain_health_summary()
+    if vision_api is not None:
+        vision_info = vision_api.domain_health_summary()
+    else:
+        vision_info = {"ready": False, "state": "uninitialized"}
     domains["vision"] = vision_info
     if (
         not vision_info.get("ready", False)
