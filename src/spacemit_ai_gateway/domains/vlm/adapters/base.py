@@ -11,7 +11,8 @@ class VlmBackend(ABC):
     def backend_name(self) -> str: ...
 
     @abstractmethod
-    async def proxy(self, path: str, request_body: bytes, headers: dict, stream: bool = False): ...
+    async def proxy_for(self, model_id: str, source_type: str,
+                        path: str, request_body: bytes, headers: dict, stream: bool = False): ...
 
     async def warmup(self) -> None:
         """Default no-op."""
