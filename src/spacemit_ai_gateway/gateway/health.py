@@ -42,14 +42,10 @@ async def healthz(request: Request):
         llm_info = llm_service.healthz()
     domains["llm"] = llm_info
 
+    # VLM 域：视觉语言模型
     vlm_svc = getattr(request.app.state, "vlm_service", None)
     if vlm_svc is not None:
         domains["vlm"] = await vlm_svc.healthz()
-    else:
-        domains["vlm"] = {"ready": False, "state": "uninitialized"}
-
-    if getattr(request.app.state, "vlm_service", None) is not None:
-        domains["vlm"] = await request.app.state.vlm_service.healthz()
     else:
         domains["vlm"] = {"ready": False, "state": "uninitialized"}
 

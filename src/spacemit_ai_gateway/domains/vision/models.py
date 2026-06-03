@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 
-import cv2
+import numpy as np
 import yaml
 
 from .adapters.native import NativeAdapter, ServiceError
@@ -516,6 +516,52 @@ def _ensure_model_from_config_downloaded(resolved_config: str, model_path_overri
         ) from exc
 
 
+def _read_image_size_from_config(config_path: str) -> tuple[int, int]:
+    """Read image_size from YAML; default 640x640 when missing."""
+    width, height = 640, 640
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        size = cfg.get("image_size") or cfg.get("input_size")
+        if isinstance(size, (list, tuple)) and len(size) >= 2:
+            width, height = int(size[0]), int(size[1])
+        elif isinstance(size, int):
+            width = height = int(size)
+    except Exception:
+        pass
+    return max(width, 1), max(height, 1)
+
+
+def _warmup_uses_embedding(capabilities: List[str]) -> bool:
+    """ArcFace 等只走 /feature → infer_embedding，不能用 infer_image 预热。"""
+    return "embedding" in capabilities and not any(
+        c in capabilities for c in ("detect", "classify", "pose", "segment", "track", "emotion")
+    )
+
+
+def _warmup_native_instance(
+    adapter: NativeAdapter,
+    instance: Any,
+    config_path: str,
+    capabilities: List[str],
+    model_id: str = "",
+) -> None:
+    """按 config 的 image_size 构造合成 BGR，跑一轮与业务一致的推理预热。"""
+    try:
+        width, height = _read_image_size_from_config(config_path)
+        img_bgr = np.zeros((height, width, 3), dtype=np.uint8)
+
+        if _warmup_uses_embedding(capabilities):
+            # similarity 会连续 infer_embedding 两次
+            for _ in range(2):
+                adapter.infer_embedding(instance, img_bgr)
+            return
+
+        adapter.infer_image(instance, img_bgr)
+    except Exception:
+        pass
+
+
 @dataclass
 class ManagedModel:
     info: ModelInfo
@@ -597,13 +643,40 @@ class ModelRegistry:
         lazy_load: bool = False,
     ) -> ModelLoadResponse:
         with self._lock:
-            if model_id in self._models and self._models[model_id].info.status == "ready":
-                m = self._models[model_id]
-                return ModelLoadResponse(
+            cached = self._models.get(model_id)
+            if cached is not None and cached.info.status == "ready":
+                cached_resp = ModelLoadResponse(
                     loaded=True,
                     model_id=model_id,
-                    engine_state={"backend": m.info.backend, "status": "ready", "config_path": m.config_path},
+                    engine_state={
+                        "backend": cached.info.backend,
+                        "status": "ready",
+                        "config_path": cached.config_path,
+                    },
                 )
+                warmup_instance = cached.backend_instance
+                warmup_config_path = cached.config_path
+                warmup_caps = list(cached.info.capabilities)
+            else:
+                cached_resp = None
+                warmup_instance = None
+                warmup_config_path = ""
+                warmup_caps = []
+
+        if cached_resp is not None:
+            if warmup_instance is not None:
+                warmup_cfg = _materialize_config_for_runtime(warmup_config_path)
+                with self._lock:
+                    still = self._models.get(model_id)
+                    if still is cached and still.backend_instance is warmup_instance:
+                        _warmup_native_instance(
+                            self._adapter,
+                            warmup_instance,
+                            warmup_cfg,
+                            warmup_caps,
+                            model_id=model_id,
+                        )
+            return cached_resp
 
         # 先释放其他已加载模型，腾出 AI cores
         self._release_other_models(model_id)
@@ -677,7 +750,9 @@ class ModelRegistry:
 
         if instance is not None:
             self._adapter.set_timing_options(instance, enabled=True, print_to_stdout=True)
-            self._warmup(instance)
+            _warmup_native_instance(
+                self._adapter, instance, runtime_config, capabilities, model_id=model_id
+            )
 
         with self._lock:
             self._models[model_id] = managed
@@ -693,19 +768,6 @@ class ModelRegistry:
             model_id=model_id,
             engine_state=engine_state,
         )
-
-    def _warmup(self, instance: Any) -> None:
-        """Run one warmup inference using the model's default test image."""
-        try:
-            default_image = instance.get_default_image()
-            if not default_image:
-                return
-            img_bgr = cv2.imread(default_image)
-            if img_bgr is None:
-                return
-            self._adapter.infer_image(instance, img_bgr)
-        except Exception:
-            pass
 
     def _release_other_models(self, keep_model_id: str) -> None:
         """Unload all loaded models except *keep_model_id* to free AI cores."""
