@@ -383,7 +383,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
 
         backend_impl = self._get_backend_impl()
 
-        if source_type == "remote":
+        if source_type == "remote" or (source_type == "local_url" and row.get("api_base_url")):
             if model not in backend_impl._remote_adapters:
                 backend_impl.register_remote(model, row["api_base_url"], row["api_key"])
             await self._set_status(model, ModelStatus.LOADED)

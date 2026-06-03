@@ -29,6 +29,7 @@ class VlmLlamaAdapter:
         self.port = port_pool.acquire()
         self.default_args = default_args or []
         self._process: subprocess.Popen | None = None
+        self._port_released = False
 
     @property
     def base_url(self) -> str:
@@ -169,7 +170,9 @@ class VlmLlamaAdapter:
                 self._process.kill()
                 self._process.wait()
         self._process = None
-        port_pool.release(self.port)
+        if not self._port_released:
+            port_pool.release(self.port)
+            self._port_released = True
 
     def is_running(self) -> bool:
         """Check if the llama-server process is running."""

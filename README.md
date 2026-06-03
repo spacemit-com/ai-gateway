@@ -464,14 +464,14 @@ pytest tests/
 
 | 类别 | 方法 | 端点 | 说明 |
 |------|------|------|------|
-| 推理 | POST | `/chat/completions` | OpenAI 兼容视觉语言推理（支持 SSE 流式） |
-| 模型 | GET | `/models` | 模型列表 |
-| 模型 | POST | `/models/register` | 注册 VLM 模型（remote / local_url / local_path） |
-| 模型 | POST | `/models/deregister` | 注销 VLM 模型 |
-| 模型 | POST | `/models/load` | 加载 / 激活模型 |
-| 模型 | POST | `/models/unload` | 卸载模型 |
-| 模型 | POST | `/models/switch` | 切换活跃模型 |
-| 运维 | GET | `/healthz` | VLM 健康检查 |
+| 推理 | POST | `/v1/vlm/chat/completions` | OpenAI 兼容视觉语言推理（支持 SSE 流式） |
+| 模型 | GET | `/v1/vlm/models` | 模型列表 |
+| 模型 | POST | `/v1/vlm/models/register` | 注册 VLM 模型（remote / local_url / local_path） |
+| 模型 | POST | `/v1/vlm/models/deregister` | 注销 VLM 模型 |
+| 模型 | POST | `/v1/vlm/models/load` | 加载 / 激活模型 |
+| 模型 | POST | `/v1/vlm/models/unload` | 卸载模型 |
+| 模型 | POST | `/v1/vlm/models/switch` | 切换活跃模型 |
+| 运维 | GET | `/v1/vlm/healthz` | VLM 健康检查 |
 
 **注册模式说明**：
 - `source_type=remote`：注册远程 OpenAI 兼容 VLM 推理服务，需提供 `api_base_url` 和可选 `api_key`。

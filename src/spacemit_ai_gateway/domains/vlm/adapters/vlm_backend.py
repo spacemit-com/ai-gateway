@@ -23,6 +23,8 @@ class VlmBackendImpl(VlmBackend):
 
     async def start_model(self, model_id: str, model_path: Path, extra_args: list[str]) -> None:
         """Start llama-server for a VLM model, health-check, then register adapter."""
+        if model_id in self._adapters:
+            await self.stop_model(model_id)
         adapter = VlmLlamaAdapter(host=self._config.host, default_args=self._config.default_args)
         try:
             adapter.start(model_path, extra_args=extra_args)
@@ -54,14 +56,13 @@ class VlmBackendImpl(VlmBackend):
 
     async def proxy_for(self, model_id: str, source_type: str,
                         path: str, request_body: bytes, headers: dict, stream: bool = False):
-        if source_type == "remote":
+        if source_type in ("remote", "local_url"):
             remote = self._remote_adapters.get(model_id)
-            if not remote:
-                raise RuntimeError(f"No remote adapter for model '{model_id}'")
-            remote_path = path
-            if remote.api_base_url.endswith("/v1") and path.startswith("/v1/"):
-                remote_path = path[3:]
-            return await remote.proxy(remote_path, request_body, headers, stream)
+            if remote:
+                remote_path = path
+                if remote.api_base_url.endswith("/v1") and path.startswith("/v1/"):
+                    remote_path = path[3:]
+                return await remote.proxy(remote_path, request_body, headers, stream)
         adapter = self._adapters.get(model_id)
         if not adapter:
             raise RuntimeError(f"Model '{model_id}' is not loaded")
