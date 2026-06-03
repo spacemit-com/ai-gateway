@@ -17,8 +17,8 @@ class RegisterRequest(BaseModel):
             if not self.api_base_url:
                 raise ValueError("api_base_url is required for remote models")
         elif self.source_type == "local_url":
-            if not self.url:
-                raise ValueError("url is required for local_url models")
+            if not self.url and not self.api_base_url:
+                raise ValueError("url or api_base_url is required for local_url models")
         elif self.source_type == "local_path":
             if not self.local_path:
                 raise ValueError("local_path is required for local_path models")
