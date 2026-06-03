@@ -334,6 +334,14 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                 if not extract_dir.exists():
                     extract_dir.mkdir(parents=True, exist_ok=True)
                     with tarfile.open(dest, "r:gz") as archive:
+                        # Defensive check: reject path traversal in archive members
+                        resolved_root = extract_dir.resolve()
+                        for member in archive.getmembers():
+                            member_path = (resolved_root / member.name).resolve()
+                            if not str(member_path).startswith(str(resolved_root)):
+                                raise ValueError(
+                                    f"Tar member '{member.name}' escapes target dir"
+                                )
                         archive.extractall(extract_dir)
                     logger.info("Extracted %s to %s", dest, extract_dir)
                 final_path = extract_dir
