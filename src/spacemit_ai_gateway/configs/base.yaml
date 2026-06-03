@@ -180,7 +180,7 @@ vlm:
     db_path: "~/.cache/spacemit-ai-gateway/vlm/db.sqlite"
   models:
     - id: fastvlm-mm-0.5b-q4_1
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4%5F1.tar.gz
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4_1.tar.gz
       size: 766M
       local_dir: fastvlm-mm-0.5b-q4_1
     - id: Qwen3.5-0.8B
@@ -196,6 +196,6 @@ vlm:
       size: 3.9G
       local_dir: Qwen3.5-4B
     - id: qwen30ba3b-mm-q4_1
-      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4%5F1.tar.gz
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4_1.tar.gz
       size: 17.6G
       local_dir: qwen30ba3b-mm-q4_1
