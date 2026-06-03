@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import shutil
 import tarfile
 from abc import ABC, abstractmethod
 from pathlib import Path
