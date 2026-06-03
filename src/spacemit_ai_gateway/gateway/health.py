@@ -7,7 +7,7 @@ from ..domains.llm import service as llm_service
 
 try:
     from ..domains.vision import api as vision_api
-except Exception:
+except ImportError:
     vision_api = None  # type: ignore[assignment]
 
 router = APIRouter()
@@ -48,6 +48,12 @@ async def healthz(request: Request):
         domains["vlm"] = await vlm_svc.healthz()
     else:
         domains["vlm"] = {"ready": False, "state": "uninitialized"}
+    vlm_info = domains["vlm"]
+    if (
+        not vlm_info.get("ready", False)
+        and vlm_info.get("state") not in _LAZY_READY_STATES
+    ):
+        overall_ready = False
 
     # vision 当前为独立域实现（自管理 registry/service），从 vision 模块读取健康摘要。
     if vision_api is not None:

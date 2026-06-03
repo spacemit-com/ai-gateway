@@ -15,7 +15,9 @@
   "models": [
     {
       "id": "fastvlm-mm-0.5b-q4_1",
-      "categoryIds": ["vlm"],
+      "categoryIds": [
+        "vlm"
+      ],
       "iconSrc": "",
       "experienceKind": "vlm",
       "title": "FastVLM 0.5B",
@@ -35,12 +37,16 @@
         "TG128(token/s)": "58",
         "量化类型": "Q4_1"
       },
-      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4%5F1.tar.gz",
-      "plat": ["K3"]
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4_1.tar.gz",
+      "plat": [
+        "K3"
+      ]
     },
     {
       "id": "Qwen3.5-0.8B",
-      "categoryIds": ["vlm"],
+      "categoryIds": [
+        "vlm"
+      ],
       "iconSrc": "",
       "experienceKind": "vlm",
       "title": "Qwen3.5-0.8B",
@@ -61,11 +67,15 @@
         "量化类型": "Q4_1"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz",
-      "plat": ["K3"]
+      "plat": [
+        "K3"
+      ]
     },
     {
       "id": "Qwen3.5-2B",
-      "categoryIds": ["vlm"],
+      "categoryIds": [
+        "vlm"
+      ],
       "iconSrc": "",
       "experienceKind": "vlm",
       "title": "Qwen3.5-2B",
@@ -86,11 +96,15 @@
         "量化类型": "Q4_1"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz",
-      "plat": ["K3"]
+      "plat": [
+        "K3"
+      ]
     },
     {
       "id": "Qwen3.5-4B",
-      "categoryIds": ["vlm"],
+      "categoryIds": [
+        "vlm"
+      ],
       "iconSrc": "",
       "experienceKind": "vlm",
       "title": "Qwen3.5-4B",
@@ -111,11 +125,15 @@
         "量化类型": "Q4_1"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz",
-      "plat": ["K3"]
+      "plat": [
+        "K3"
+      ]
     },
     {
       "id": "qwen30ba3b-mm-q4_1",
-      "categoryIds": ["vlm"],
+      "categoryIds": [
+        "vlm"
+      ],
       "iconSrc": "",
       "experienceKind": "vlm",
       "title": "Qwen3-30B-A3B-VL",
@@ -136,7 +154,9 @@
         "量化类型": "Q4_1"
       },
       "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4_1.tar.gz",
-      "plat": ["K3"]
+      "plat": [
+        "K3"
+      ]
     }
   ]
 }

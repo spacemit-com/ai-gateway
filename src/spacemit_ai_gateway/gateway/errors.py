@@ -14,7 +14,7 @@ from ..common.errors import DomainError
 
 try:
     from ..domains.vision.adapters.native import ServiceError as VisionServiceError
-except Exception:
+except ImportError:
     VisionServiceError = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)

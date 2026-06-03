@@ -38,7 +38,7 @@ from ..domains.vlm.adapters import build_vlm_backends
 from ..domains.vlm.service import VlmService
 try:
     from ..domains.vision import api as vision_api
-except Exception:
+except ImportError:
     vision_api = None  # type: ignore[assignment]
 from .settings import get_settings
 

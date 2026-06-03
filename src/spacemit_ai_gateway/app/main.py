@@ -37,7 +37,7 @@ except Exception:
     logging.getLogger(__name__).warning("VLM domain not available (missing dependencies), skipping")
 try:
     from ..domains.vision import api as vision_api
-except Exception:
+except ImportError:
     vision_api = None  # type: ignore[assignment]
     logging.getLogger(__name__).warning("Vision domain not available (missing dependencies), skipping")
 from ..gateway.errors import setup_exception_handlers
