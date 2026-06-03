@@ -13,7 +13,6 @@ from .service import VlmService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-compat_router = APIRouter()
 
 
 def _get_service(request: Request) -> VlmService:
@@ -190,22 +189,3 @@ async def _smart_proxy(path: str, request: Request):
 async def chat_completions(request: Request, _: None = Depends(verify_api_key)):
     return await _smart_proxy("/v1/chat/completions", request)
 
-
-@compat_router.get("/v1/models")
-async def openai_models_compat(request: Request):
-    svc = _get_service(request)
-    current_id = svc.get_current_model()
-    models = []
-    if current_id:
-        models.append({
-            "id": current_id,
-            "object": "model",
-            "created": int(time.time()),
-            "owned_by": "spacemit-ai-gateway",
-        })
-    return {"object": "list", "data": models}
-
-
-@compat_router.post("/v1/chat/completions")
-async def chat_completions_compat(request: Request, _: None = Depends(verify_api_key)):
-    return await _smart_proxy("/v1/chat/completions", request)

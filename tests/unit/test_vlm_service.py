@@ -1,6 +1,5 @@
 """Unit tests for VLM model service."""
 
-from pathlib import Path
 
 import pytest
 

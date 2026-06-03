@@ -163,7 +163,6 @@ app.include_router(rerank_api.router, prefix="/v1/rerank", tags=["Rerank"])
 app.include_router(rerank_api.compat_router, tags=["Rerank"])
 if vlm_api is not None:
     app.include_router(vlm_api.router, prefix="/v1/vlm", tags=["VLM"])
-    app.include_router(vlm_api.compat_router, tags=["VLM"])
 if vision_api is not None:
     app.include_router(vision_api.app.router, tags=["Vision"])
 

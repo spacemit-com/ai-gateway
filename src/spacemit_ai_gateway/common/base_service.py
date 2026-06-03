@@ -322,12 +322,27 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                                 progress = downloaded / total
                                 await self._set_status(model, ModelStatus.DOWNLOADING, progress)
             temp_path.rename(dest)
+            # Extract tar.gz archives for VLM directory-based models
+            local_dir = None
+            for m in self.settings.preset_models:
+                if m["id"] == model:
+                    local_dir = m.get("local_dir")
+                    break
+            final_path = dest
+            if local_dir and str(dest).endswith((".tar.gz", ".tgz")):
+                extract_dir = self.settings.storage.models_path / local_dir
+                if not extract_dir.exists():
+                    extract_dir.mkdir(parents=True, exist_ok=True)
+                    with tarfile.open(dest, "r:gz") as archive:
+                        archive.extractall(extract_dir)
+                    logger.info("Extracted %s to %s", dest, extract_dir)
+                final_path = extract_dir
             await self._db.execute(
                 "UPDATE models SET status=?, local_path=?, download_progress=1.0 WHERE id=?",
-                (ModelStatus.DOWNLOADED, str(dest), model),
+                (ModelStatus.DOWNLOADED, str(final_path), model),
             )
             await self._db.commit()
-            logger.info("Download complete: %s -> %s", model, dest)
+            logger.info("Download complete: %s -> %s", model, final_path)
         except asyncio.CancelledError:
             temp_path.unlink(missing_ok=True)
             await self._set_status(model, ModelStatus.AVAILABLE, 0.0)
