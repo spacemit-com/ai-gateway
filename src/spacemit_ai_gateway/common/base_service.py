@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import os
+import tarfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -338,7 +340,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                         resolved_root = extract_dir.resolve()
                         for member in archive.getmembers():
                             member_path = (resolved_root / member.name).resolve()
-                            if not str(member_path).startswith(str(resolved_root)):
+                            if not member_path.is_relative_to(resolved_root):
                                 raise ValueError(
                                     f"Tar member '{member.name}' escapes target dir"
                                 )

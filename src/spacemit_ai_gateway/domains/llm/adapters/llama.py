@@ -17,7 +17,6 @@ class LlamaAdapter:
         self.port = port_pool.acquire()
         self.default_args = default_args or []
         self._process: subprocess.Popen | None = None
-        self._port_released = False
 
     @property
     def base_url(self) -> str:
@@ -60,9 +59,7 @@ class LlamaAdapter:
                 self._process.kill()
                 self._process.wait()
         self._process = None
-        if not self._port_released:
-            port_pool.release(self.port)
-            self._port_released = True
+        port_pool.release(self.port)
 
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None
