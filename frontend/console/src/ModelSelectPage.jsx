@@ -11,15 +11,26 @@ function _msInferCat(id) {
   for (const [re, cat] of _MS_CAT_RULES) if (re.test(id)) return cat;
   return 'chat';
 }
+function _msInferVlmCat(m) {
+  const id = (m.id || '').toLowerCase();
+  if (m.source_type === 'remote') return 'remote';
+  if (/fastvlm/.test(id)) return 'fastvlm';
+  if (/qwen/.test(id)) return 'qwen';
+  return 'local';
+}
 const _MS_CAT_COLORS = {
   chat: 'oklch(0.82 0.18 135 / .14)', translate: 'oklch(0.72 0.14 230 / .18)',
   reasoning: 'oklch(0.72 0.14 300 / .18)', embedding: 'oklch(0.72 0.14 190 / .18)',
-  code: 'oklch(0.78 0.14 80 / .18)',
+  code: 'oklch(0.78 0.14 80 / .18)', qwen: 'oklch(0.72 0.14 230 / .18)',
+  fastvlm: 'oklch(0.78 0.14 80 / .18)', remote: 'oklch(0.72 0.14 300 / .18)',
+  local: 'oklch(0.72 0.14 190 / .18)',
 };
 const _MS_CAT_TEXT = {
   chat: 'var(--accent)', translate: 'oklch(0.72 0.14 230)',
   reasoning: 'oklch(0.72 0.14 300)', embedding: 'oklch(0.72 0.14 190)',
-  code: 'oklch(0.78 0.14 80)',
+  code: 'oklch(0.78 0.14 80)', qwen: 'oklch(0.72 0.14 230)',
+  fastvlm: 'oklch(0.78 0.14 80)', remote: 'oklch(0.72 0.14 300)',
+  local: 'oklch(0.72 0.14 190)',
 };
 
 function ModelSelectPage({ setPage, initialCategory }) {
@@ -37,17 +48,20 @@ function ModelSelectPage({ setPage, initialCategory }) {
 
   const switchCategory = (k) => { setCategory(k); setSubCat('all'); setSearch(''); };
 
-  const categoryLabels = { text: t('语言模型'), voice: t('语音模型'), vision: t('视觉模型') };
-  const categoryIcons = { text: 'grid', voice: 'mic', vision: 'eye' };
+  const categoryLabels = { text: t('语言模型'), voice: t('语音模型'), vision: t('视觉模型'), vlm: t('VLM 模型') };
+  const categoryIcons = { text: 'grid', voice: 'mic', vision: 'eye', vlm: 'eye' };
 
   const allModels = catalog[category] || [];
   const subCatLabels = category === 'text'
     ? { all: t('全部'), chat: t('对话'), translate: t('翻译'), reasoning: t('推理'), embedding: t('嵌入'), code: t('代码') }
-    : null;
+    : category === 'vlm'
+      ? { all: t('全部'), qwen: 'Qwen', fastvlm: 'FastVLM', remote: t('远程API'), local: t('本地模型') }
+      : null;
+  const inferSubCat = (m) => category === 'vlm' ? _msInferVlmCat(m) : _msInferCat(m.id);
 
   const subCatCounts = {};
   if (subCatLabels) {
-    allModels.forEach(m => { const c = _msInferCat(m.id); subCatCounts[c] = (subCatCounts[c] || 0) + 1; });
+    allModels.forEach(m => { const c = inferSubCat(m); subCatCounts[c] = (subCatCounts[c] || 0) + 1; });
     subCatCounts.all = allModels.length;
   }
 
@@ -58,7 +72,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
     models = models.filter(m => m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q)));
   }
   if (subCat !== 'all' && subCatLabels) {
-    models = models.filter(m => _msInferCat(m.id) === subCat);
+    models = models.filter(m => inferSubCat(m) === subCat);
   }
   models = [...models].sort((a, b) => (_MS_STATUS_ORDER[a.status] ?? 9) - (_MS_STATUS_ORDER[b.status] ?? 9));
 
@@ -101,7 +115,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
 
       <div className="card-grid">
         {models.map(m => {
-          const cat = category === 'text' ? _msInferCat(m.id) : null;
+          const cat = subCatLabels ? inferSubCat(m) : null;
           return <ModelCard key={m.domain + '-' + m.id} model={m}
             catLabel={cat && subCatLabels ? subCatLabels[cat] : null}
             catColor={cat ? _MS_CAT_COLORS[cat] : null}
