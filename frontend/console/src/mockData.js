@@ -248,6 +248,7 @@ window.MODEL_CATALOG = {
 const VISION_MODEL_ALIASES = {
   yolov8: 'yolov8n',
   yolov11: 'yolov11n',
+  yolov5_gesture: 'yolov5-gesture',
   'yolov8-pose': 'yolov8n-pose',
   'yolov8-seg': 'yolov8n-seg',
 };
@@ -268,6 +269,16 @@ function visionCatalogMeta(id) {
 function vlmCatalogMeta(id) {
   const catalog = window.MODEL_CATALOG?.vlm || [];
   return catalog.find(m => m.id === id) || null;
+}
+
+function dedupeCatalogModels(models) {
+  const seen = new Set();
+  return models.filter(m => {
+    const key = m.domain + '-' + m.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // 从后端拉取真实模型列表，覆盖静态数据
@@ -367,8 +378,8 @@ window.initModelCatalog = async function() {
         status: m.status === 'ready' ? 'ready' : 'idle', calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
-    const visionList = mappedVisionModels.filter(m => m.domain !== 'vlm');
-    const vlmFromVisionList = mappedVisionModels.filter(m => m.domain === 'vlm');
+    const visionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain !== 'vlm'));
+    const vlmFromVisionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain === 'vlm'));
 
     const vlmStatusMap = {
       loaded: 'ready', loading: 'ready', downloaded: 'idle',
@@ -400,7 +411,7 @@ window.initModelCatalog = async function() {
     }
 
     if (vlmList.length > 0 || vlmFromVisionList.length > 0) {
-      const liveVlm = [...vlmList, ...vlmFromVisionList];
+      const liveVlm = dedupeCatalogModels([...vlmList, ...vlmFromVisionList]);
       const liveIds = new Set(liveVlm.map(m => m.domain + '-' + m.id));
       const staticVlm = (window.MODEL_CATALOG.vlm || []).filter(
         m => !liveIds.has(m.domain + '-' + m.id)

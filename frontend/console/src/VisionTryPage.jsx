@@ -32,6 +32,138 @@ const CAP_LABEL = {
   track:'目标跟踪',
 };
 
+function detectionList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value.items)) return value.items;
+  if (Array.isArray(value.results)) return value.results;
+  if (Array.isArray(value.data)) return value.data;
+  if (Array.isArray(value.detections)) return value.detections;
+  if (Array.isArray(value.boxes)) return value.boxes;
+  return [];
+}
+
+function pickDetections(results) {
+  const candidates = [
+    results,
+    results?.detect,
+    results?.detections,
+    results?.det,
+    results?.boxes,
+    results?.objects,
+    results?.results?.detect,
+    results?.results?.detections,
+    results?.data?.results?.detect,
+    results?.data?.results?.detections,
+  ];
+  for (const candidate of candidates) {
+    const list = detectionList(candidate);
+    if (list.length > 0) return list;
+  }
+  return [];
+}
+
+function toFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function readBoxObject(box) {
+  if (!box || typeof box !== 'object') return [];
+  const x1 = box.x1 ?? box.left ?? box.xmin ?? box.x;
+  const y1 = box.y1 ?? box.top ?? box.ymin ?? box.y;
+  let x2 = box.x2 ?? box.right ?? box.xmax;
+  let y2 = box.y2 ?? box.bottom ?? box.ymax;
+  const w = box.w ?? box.width;
+  const h = box.h ?? box.height;
+  if ((x2 == null || y2 == null) && w != null && h != null && x1 != null && y1 != null) {
+    x2 = Number(x1) + Number(w);
+    y2 = Number(y1) + Number(h);
+  }
+  return [x1, y1, x2, y2];
+}
+
+function normalizeBBox(item) {
+  const d = item || {};
+  const xywh = d.xywh || d.bbox_xywh;
+  if (Array.isArray(xywh)) {
+    const [x, y, w, h] = xywh.map(toFiniteNumber);
+    return [x, y, x + w, y + h];
+  }
+  if (xywh && typeof xywh === 'object') {
+    return readBoxObject(xywh).map(toFiniteNumber);
+  }
+
+  let raw = Array.isArray(d) ? d : (d.bbox ?? d.box ?? d.xyxy ?? d.rect ?? d.bounds);
+  let box = [];
+  if (Array.isArray(raw)) {
+    box = raw.slice(0, 4);
+  } else if (raw && typeof raw === 'object') {
+    box = readBoxObject(raw);
+  } else {
+    box = [
+      d.x1 ?? d.left ?? d.xmin ?? d.x,
+      d.y1 ?? d.top ?? d.ymin ?? d.y,
+      d.x2 ?? d.right ?? d.xmax,
+      d.y2 ?? d.bottom ?? d.ymax,
+    ];
+  }
+
+  let [x1, y1, x2, y2] = box.map(toFiniteNumber);
+  const w = toFiniteNumber(d.w ?? d.width ?? raw?.w ?? raw?.width);
+  const h = toFiniteNumber(d.h ?? d.height ?? raw?.h ?? raw?.height);
+  const boxFormat = String(d.bbox_format ?? d.box_format ?? d.format ?? '').toLowerCase();
+  if (boxFormat.includes('xywh') && x1 != null && y1 != null && x2 != null && y2 != null) {
+    x2 = x1 + x2;
+    y2 = y1 + y2;
+  } else if ((x2 == null || y2 == null) && x1 != null && y1 != null && w != null && h != null) {
+    x2 = x1 + w;
+    y2 = y1 + h;
+  } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 <= x1 || y2 <= y1)) {
+    x2 = x1 + x2;
+    y2 = y1 + y2;
+  }
+
+  return [x1, y1, x2, y2];
+}
+
+function normalizeDetection(item) {
+  const d = item || {};
+  const bbox = normalizeBBox(d);
+  if (bbox.some(v => !Number.isFinite(v))) return null;
+
+  const rawScore = Array.isArray(d)
+    ? toFiniteNumber(d[4])
+    : toFiniteNumber(d.score ?? d.confidence ?? d.conf ?? d.prob);
+  const score = rawScore == null ? 1 : (rawScore > 1 && rawScore <= 100 ? rawScore / 100 : rawScore);
+  const label = Array.isArray(d)
+    ? (d[5] ?? 'object')
+    : (d.label_name ?? d.class_name ?? d.name ?? d.label ?? d.class_id ?? d.class_idx ?? 'object');
+  const rawTrackId = d.track_id ?? d.trackId ?? d.id ?? -1;
+  const trackId = Number(rawTrackId);
+
+  return {
+    label: String(label),
+    score,
+    bbox,
+    x1: bbox[0],
+    y1: bbox[1],
+    x2: bbox[2],
+    y2: bbox[3],
+    track_id: Number.isFinite(trackId) ? trackId : -1,
+  };
+}
+
+function scaleBoxForImage(bbox, size) {
+  const [x1, y1, x2, y2] = bbox.map(Number);
+  if (!size?.w || !size?.h) return [x1, y1, x2, y2];
+  const maxCoord = Math.max(Math.abs(x1), Math.abs(y1), Math.abs(x2), Math.abs(y2));
+  if (Number.isFinite(maxCoord) && maxCoord > 0 && maxCoord <= 1.5) {
+    return [x1 * size.w, y1 * size.h, x2 * size.w, y2 * size.h];
+  }
+  return [x1, y1, x2, y2];
+}
+
 function VisionTryPage({ model, onBack: _onBack }) {
   const { Icon, visionApi, t } = window;
   const caps = model.capabilities || [];
@@ -203,7 +335,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
           if (msg.event === 'ready') {
             startSendLoop(ws, video);
           } else if (msg.event === 'frame_result') {
-            setStreamDetections(msg.detections || []);
+            setStreamDetections(pickDetections(msg).map(normalizeDetection).filter(Boolean));
             setStreamPose(msg.pose || null);
             setStreamEmotion(msg.emotion || null);
             setStreamClassify(msg.classify || null);
@@ -308,9 +440,10 @@ function VisionTryPage({ model, onBack: _onBack }) {
           opts.iou = iou;
         }
         const res = await visionApi.inference(imgFile, tasks, model.id, opts);
-        setResults(res.results || res);
+        const resultPayload = res.results || res;
+        setResults(resultPayload);
         setTiming(res.timing || null);
-        const dets = res.results?.detect || res.detect || [];
+        const dets = pickDetections(resultPayload).map(normalizeDetection).filter(Boolean);
         window.historyStore?.push({
           model: model.id, type: 'Vision',
           input: imgFile.name || 'image',
@@ -324,11 +457,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
     setLoading(false);
   };
 
-  const detections = (results?.detect || []).map(d => ({
-    label: d.label_name || d.label != null ? (d.label_name || String(d.label)) : 'object',
-    score: d.score, bbox: d.bbox || [d.x1, d.y1, d.x2, d.y2],
-    track_id: d.track_id,
-  }));
+  const detections = pickDetections(results).map(normalizeDetection).filter(Boolean);
   const poses = results?.pose || [];
   const segments = results?.segment || [];
   const classifications = results?.classify || [];
@@ -382,18 +511,19 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && (hasDetect || hasTrack) && streamDetections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
+                  const [x1, y1, x2, y2] = scaleBoxForImage(d.bbox, { w: video.videoWidth, h: video.videoHeight });
                   const sx = video.clientWidth / video.videoWidth;
                   const sy = video.clientHeight / video.videoHeight;
                   const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
                   const c = DET_COLORS[ci % DET_COLORS.length];
-                  const labelText = d.label_name || d.label;
+                  const labelText = d.label || 'object';
                   const lbl = hasTrack && d.track_id >= 0
                     ? `#${d.track_id} ${labelText} ${((d.score ?? 1) * 100).toFixed(0)}%`
                     : `${labelText} ${((d.score ?? 1) * 100).toFixed(0)}%`;
                   return (
                     <div key={'det-'+i} style={{
-                      position: 'absolute', left: d.x1 * sx, top: d.y1 * sy,
-                      width: (d.x2 - d.x1) * sx, height: (d.y2 - d.y1) * sy,
+                      position: 'absolute', left: x1 * sx, top: y1 * sy,
+                      width: (x2 - x1) * sx, height: (y2 - y1) * sy,
                       border: `2px solid ${c}`, boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
                       pointerEvents: 'none',
                     }}>
@@ -442,8 +572,9 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   const sy = video.clientHeight / video.videoHeight;
                   return streamEmotion.map((em, ei) => {
                     const det = streamDetections[ei];
-                    const x = det ? det.x1 * sx : 10;
-                    const y = det ? det.y2 * sy + 4 : 30 + ei * 28;
+                    const box = det ? scaleBoxForImage(det.bbox, { w: video.videoWidth, h: video.videoHeight }) : null;
+                    const x = box ? box[0] * sx : 10;
+                    const y = box ? box[3] * sy + 4 : 30 + ei * 28;
                     const c = EMOTION_COLORS[em.label] || '#8a8e95';
                     return (
                       <div key={'emo-'+ei} style={{
@@ -555,7 +686,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
                   {/* Detection overlay */}
                   {hasDetect && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
-                    const [x1, y1, x2, y2] = d.bbox;
+                    const [x1, y1, x2, y2] = scaleBoxForImage(d.bbox, imgSize);
                     const sx = imgSize.renderedW / imgSize.w;
                     const sy = imgSize.renderedH / imgSize.h;
                     const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
