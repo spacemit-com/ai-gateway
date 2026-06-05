@@ -266,9 +266,19 @@ function visionCatalogMeta(id) {
   return catalog.find(m => m.id === canonical) || null;
 }
 
+const VLM_MODEL_META_ALIASES = {
+  'qwen2.5-vl-3b': {
+    id: 'qwen2.5-vl-3b', name: 'Qwen2.5-VL-3B', icon: 'eye', domain: 'vlm',
+    capabilities: ['vlm'],
+    desc: 'Qwen2.5 3B 视觉语言模型，支持图像理解与对话。',
+    meta: [['参数规模', '3B'], ['格式', 'GGUF']],
+    status: 'idle', calls: 0, latencyMs: 0,
+  },
+};
+
 function vlmCatalogMeta(id) {
   const catalog = window.MODEL_CATALOG?.vlm || [];
-  return catalog.find(m => m.id === id) || null;
+  return catalog.find(m => m.id === id) || VLM_MODEL_META_ALIASES[id] || null;
 }
 
 function dedupeCatalogModels(models) {
