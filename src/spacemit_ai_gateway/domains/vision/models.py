@@ -34,17 +34,32 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
     "yolov8n": {
         "config": "configs/vision/yolov8n.yaml",
         "caps": ["detect"],
-        "models": [{"url": f"{_BASE}/yolov8/yolov8n.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8n.q.onnx"}],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8/yolov8n_no_dfl.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8/yolov8n_no_dfl.q.onnx",
+            }
+        ],
     },
     "yolov8s": {
         "config": "configs/vision/yolov8s.yaml",
         "caps": ["detect"],
-        "models": [{"url": f"{_BASE}/yolov8/yolov8s.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8s.q.onnx"}],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8/yolov8s_no_dfl.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8/yolov8s_no_dfl.q.onnx",
+            }
+        ],
     },
     "yolov8m": {
         "config": "configs/vision/yolov8m.yaml",
         "caps": ["detect"],
-        "models": [{"url": f"{_BASE}/yolov8/yolov8m.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8m.q.onnx"}],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8/yolov8m_no_dfl.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8/yolov8m_no_dfl.q.onnx",
+            }
+        ],
     },
     "yolov11n": {
         "config": "configs/vision/yolov11n.yaml",
@@ -171,15 +186,20 @@ KNOWN_MODELS: Dict[str, Dict[str, Any]] = {
     "bytetrack": {
         "config": "configs/vision/bytetrack.yaml",
         "caps": ["detect", "track"],
-        "models": [{"url": f"{_BASE}/yolov8/yolov8n.q.onnx", "dest": "~/.cache/models/vision/yolov8/yolov8n.q.onnx"}],
+        "models": [
+            {
+                "url": f"{_BASE}/yolov8/yolov8n_no_dfl.q.onnx",
+                "dest": "~/.cache/models/vision/yolov8/yolov8n_no_dfl.q.onnx",
+            }
+        ],
     },
     "ocsort": {
         "config": "configs/vision/ocsort.yaml",
         "caps": ["detect", "track"],
         "models": [
             {
-                "url": f"{_BASE}/yolov8/yolov8n.q.onnx",
-                "dest": "~/.cache/models/vision/ocsort/yolov8n.q.onnx",
+                "url": f"{_BASE}/yolov8/yolov8n_no_dfl.q.onnx",
+                "dest": "~/.cache/models/vision/ocsort/yolov8n_no_dfl.q.onnx",
             },
             {
                 "url": f"{_BASE}/ocsort/ocsort_yoloxs_sim.fp32.onnx",
