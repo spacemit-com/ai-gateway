@@ -11,7 +11,11 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ..common.errors import DomainError
-from ..domains.vision.adapters.native import ServiceError as VisionServiceError
+
+try:
+    from ..domains.vision.adapters.native import ServiceError as VisionServiceError
+except ImportError:
+    VisionServiceError = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +25,18 @@ def setup_exception_handlers(app: FastAPI) -> None:
     async def _(request: Request, exc: DomainError):
         return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
-    @app.exception_handler(VisionServiceError)
-    async def _(request: Request, exc: VisionServiceError):
-        return JSONResponse(
-            status_code=exc.http_status,
-            content={
-                "code": exc.code,
-                "message": exc.message,
-                "error": "vision_error",
-                "retriable": False,
-            },
-        )
+    if VisionServiceError is not None:
+        @app.exception_handler(VisionServiceError)
+        async def _(request: Request, exc: VisionServiceError):
+            return JSONResponse(
+                status_code=exc.http_status,
+                content={
+                    "code": exc.code,
+                    "message": exc.message,
+                    "error": "vision_error",
+                    "retriable": False,
+                },
+            )
 
     @app.exception_handler(ValidationError)
     async def _(request: Request, exc: ValidationError):

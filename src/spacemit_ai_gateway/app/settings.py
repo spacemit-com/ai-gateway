@@ -205,6 +205,18 @@ class RerankConfig(BaseModelConfig):
     storage: RerankStorageConfig = Field(default_factory=RerankStorageConfig)
 
 
+# ---- VLM ----
+class VlmStorageConfig(BaseStorageConfig):
+    base_dir: str = "~/.cache/spacemit-ai-gateway/vlm"
+    models_dir: str = "~/.cache/models/vlm"
+    db_path: str = "~/.cache/spacemit-ai-gateway/vlm/db.sqlite"
+
+
+class VlmConfig(BaseModelConfig):
+    default_args: list[str] = ["--ctx-size", "4096", "--threads", "8"]
+    storage: VlmStorageConfig = Field(default_factory=VlmStorageConfig)
+
+
 class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
@@ -215,6 +227,7 @@ class Settings(BaseSettings):
     llm: LlmConfig = Field(default_factory=LlmConfig)
     embed: EmbedConfig = Field(default_factory=EmbedConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
+    vlm: VlmConfig = Field(default_factory=VlmConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     class Config:

@@ -34,9 +34,11 @@ from ..domains.tts.stream import TtsStreamHandler
 from ..domains.vad.adapters import VAD_REGISTRY
 from ..domains.vad.service import VadService
 from ..domains.vad.stream import VadStreamHandler
+from ..domains.vlm.adapters import build_vlm_backends
+from ..domains.vlm.service import VlmService
 try:
     from ..domains.vision import api as vision_api
-except Exception:
+except ImportError:
     vision_api = None  # type: ignore[assignment]
 from .settings import get_settings
 
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
     llm_backends = build_llm_backends(settings.llm)
     embed_backends = build_embed_backends(settings.embed)
     rerank_backends = build_rerank_backends(settings.rerank)
+    vlm_backends = build_vlm_backends(settings.vlm)
 
     asr_store = SessionStore(
         ttl_seconds=settings.asr.stream.session_ttl_s, namespace="asr"
@@ -106,6 +109,13 @@ async def lifespan(app: FastAPI):
             "rerank.backend '%s' not in loaded backends, falling back to '%s'",
             settings.rerank.backend, rerank_default,
         )
+    vlm_default = settings.vlm.backend
+    if not vlm_default or vlm_default not in vlm_backends:
+        vlm_default = next(iter(vlm_backends))
+        logger.warning(
+            "vlm.backend '%s' not in loaded backends, falling back to '%s'",
+            settings.vlm.backend, vlm_default,
+        )
 
     event_store = EventStore()
 
@@ -118,6 +128,8 @@ async def lifespan(app: FastAPI):
     await embed_service.initialize()
     rerank_service = RerankService(rerank_backends, rerank_default, config=settings.rerank)
     await rerank_service.initialize()
+    vlm_service = VlmService(vlm_backends, vlm_default, config=settings.vlm)
+    await vlm_service.initialize()
 
     if vision_api is not None:
         try:
@@ -139,6 +151,7 @@ async def lifespan(app: FastAPI):
     app.state.llm_service = llm_service
     app.state.embed_service = embed_service
     app.state.rerank_service = rerank_service
+    app.state.vlm_service = vlm_service
     app.state.asr_stream_handler = AsrStreamHandler(asr_service)
     app.state.tts_stream_handler = TtsStreamHandler(tts_service)
     app.state.vad_stream_handler = VadStreamHandler(vad_service)
@@ -161,6 +174,7 @@ async def lifespan(app: FastAPI):
             llm_service.shutdown(),
             embed_service.shutdown(),
             rerank_service.shutdown(),
+            vlm_service.shutdown(),
             return_exceptions=True,
         )
         if vision_api is not None:

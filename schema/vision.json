@@ -139,8 +139,8 @@
             "量化类型": "INT8",
             "Quant": "INT8"
           },
-          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n.q.onnx",
-          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n.q.onnx.md5",
+          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n_no_dfl.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8n_no_dfl.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -171,8 +171,8 @@
             "量化类型": "INT8",
             "Quant": "INT8"
           },
-          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s.q.onnx",
-          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s.q.onnx.md5",
+          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s_no_dfl.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8s_no_dfl.q.onnx.md5",
           "plat": [
             "K3"
           ]
@@ -203,8 +203,8 @@
             "量化类型": "INT8",
             "Quant": "INT8"
           },
-          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m.q.onnx",
-          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m.q.onnx.md5",
+          "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m_no_dfl.q.onnx",
+          "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vision/yolov8/yolov8m_no_dfl.q.onnx.md5",
           "plat": [
             "K3"
           ]

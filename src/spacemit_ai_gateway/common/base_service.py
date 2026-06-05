@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import tarfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -167,8 +168,12 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             async with self._db.execute("SELECT id, status, local_path FROM models WHERE id = ?", (m["id"],)) as cur:
                 row = await cur.fetchone()
             url = m.get("url", "")
-            filename = url.split("/")[-1] if url else f"{m['id']}.gguf"
-            expected_path = self.settings.storage.models_path / filename
+            local_dir = m.get("local_dir")
+            if local_dir:
+                expected_path = self.settings.storage.models_path / local_dir
+            else:
+                filename = url.split("/")[-1] if url else f"{m['id']}.gguf"
+                expected_path = self.settings.storage.models_path / filename
             if row is None:
                 if expected_path.exists():
                     await self._db.execute(
@@ -263,9 +268,17 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         model = row["id"]
         local_path = row.get("local_path")
         if not local_path:
-            url = row.get("url", "")
-            if url:
-                local_path = str(self.settings.storage.models_path / url.split("/")[-1])
+            local_dir = None
+            for m in self.settings.preset_models:
+                if m["id"] == model:
+                    local_dir = m.get("local_dir")
+                    break
+            if local_dir:
+                local_path = str(self.settings.storage.models_path / local_dir)
+            else:
+                url = row.get("url", "")
+                if url:
+                    local_path = str(self.settings.storage.models_path / url.split("/")[-1])
         file_exists = bool(local_path and Path(local_path).exists())
         status = row["status"]
         active_statuses = (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING, ModelStatus.DOWNLOADING)
@@ -310,12 +323,35 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                                 progress = downloaded / total
                                 await self._set_status(model, ModelStatus.DOWNLOADING, progress)
             temp_path.rename(dest)
+            # Extract tar.gz archives for VLM directory-based models
+            local_dir = None
+            for m in self.settings.preset_models:
+                if m["id"] == model:
+                    local_dir = m.get("local_dir")
+                    break
+            final_path = dest
+            if local_dir and str(dest).endswith((".tar.gz", ".tgz")):
+                extract_dir = self.settings.storage.models_path / local_dir
+                if not extract_dir.exists():
+                    extract_dir.mkdir(parents=True, exist_ok=True)
+                    with tarfile.open(dest, "r:gz") as archive:
+                        # Defensive check: reject path traversal in archive members
+                        resolved_root = extract_dir.resolve()
+                        for member in archive.getmembers():
+                            member_path = (resolved_root / member.name).resolve()
+                            if not member_path.is_relative_to(resolved_root):
+                                raise ValueError(
+                                    f"Tar member '{member.name}' escapes target dir"
+                                )
+                        archive.extractall(extract_dir)
+                    logger.info("Extracted %s to %s", dest, extract_dir)
+                final_path = extract_dir
             await self._db.execute(
                 "UPDATE models SET status=?, local_path=?, download_progress=1.0 WHERE id=?",
-                (ModelStatus.DOWNLOADED, str(dest), model),
+                (ModelStatus.DOWNLOADED, str(final_path), model),
             )
             await self._db.commit()
-            logger.info("Download complete: %s -> %s", model, dest)
+            logger.info("Download complete: %s -> %s", model, final_path)
         except asyncio.CancelledError:
             temp_path.unlink(missing_ok=True)
             await self._set_status(model, ModelStatus.AVAILABLE, 0.0)
@@ -371,7 +407,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
 
         backend_impl = self._get_backend_impl()
 
-        if source_type == "remote":
+        if source_type == "remote" or (source_type == "local_url" and row.get("api_base_url")):
             if model not in backend_impl._remote_adapters:
                 backend_impl.register_remote(model, row["api_base_url"], row["api_key"])
             await self._set_status(model, ModelStatus.LOADED)

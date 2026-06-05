@@ -31,8 +31,13 @@ from ..domains.tts import stream as tts_stream
 from ..domains.vad import api as vad_api
 from ..domains.vad import stream as vad_stream
 try:
-    from ..domains.vision import api as vision_api
+    from ..domains.vlm import api as vlm_api
 except Exception:
+    vlm_api = None  # type: ignore[assignment]
+    logging.getLogger(__name__).warning("VLM domain not available (missing dependencies), skipping")
+try:
+    from ..domains.vision import api as vision_api
+except ImportError:
     vision_api = None  # type: ignore[assignment]
     logging.getLogger(__name__).warning("Vision domain not available (missing dependencies), skipping")
 from ..gateway.errors import setup_exception_handlers
@@ -52,13 +57,14 @@ app = FastAPI(
     title=settings.app.name,
     version=settings.app.version,
     description=(
-        "SpacemiT AI Gateway — ASR / TTS / VAD / LLM / Embed / Rerank 统一 API。\n\n"
+        "SpacemiT AI Gateway — ASR / TTS / VAD / LLM / Embed / Rerank / VLM 统一 API。\n\n"
         "- ASR `/v1/asr/*`  语音识别（HTTP + WS 流式）\n"
         "- TTS `/v1/tts/*`  语音合成（HTTP + WS 流式）\n"
         "- VAD `/v1/vad/*`  语音活动检测（HTTP + WS 流式）\n"
         "- LLM `/v1/llm/*`  大语言模型（OpenAI 兼容）\n"
         "- Embed `/v1/embed/*`  文本嵌入（OpenAI 兼容）\n"
         "- Rerank `/v1/rerank/*`  文本重排序\n"
+        "- VLM `/v1/vlm/*`  视觉语言模型（OpenAI 兼容）\n"
         "- Vision `/v1/vision/*`  视觉推理（HTTP + WS 流式）\n\n"
 
         "鉴权：若启用则在请求头携带 `X-API-Key`；WS 需先 POST `/stream/session` 取 `session_id`。"
@@ -155,6 +161,8 @@ app.include_router(embed_api.router, prefix="/v1/embed", tags=["Embed"])
 app.include_router(embed_api.compat_router, tags=["Embed"])
 app.include_router(rerank_api.router, prefix="/v1/rerank", tags=["Rerank"])
 app.include_router(rerank_api.compat_router, tags=["Rerank"])
+if vlm_api is not None:
+    app.include_router(vlm_api.router, prefix="/v1/vlm", tags=["VLM"])
 if vision_api is not None:
     app.include_router(vision_api.app.router, tags=["Vision"])
 
@@ -172,6 +180,7 @@ async def root():
             "llm": "/v1/llm",
             "embed": "/v1/embed",
             "rerank": "/v1/rerank",
+            "vlm": "/v1/vlm",
             "vision": "/v1/vision",
         },
     }

@@ -1,0 +1,167 @@
+{
+  "id": "vlm",
+  "name": "视觉语言模型",
+  "nameEn": "Vision Language Models",
+  "description": "图文理解与视觉推理模型，支持图像描述、视觉问答等任务",
+  "descriptionEn": "Image-text understanding and visual reasoning models for image description, VQA, etc.",
+  "performanceId": [
+    "TG128(token/s)",
+    "量化类型"
+  ],
+  "performanceIdEn": [
+    "TG128(token/s)",
+    "Quant"
+  ],
+  "models": [
+    {
+      "id": "fastvlm-mm-0.5b-q4_1",
+      "categoryIds": [
+        "vlm"
+      ],
+      "iconSrc": "",
+      "experienceKind": "vlm",
+      "title": "FastVLM 0.5B",
+      "titleEn": "FastVLM 0.5B",
+      "description": "轻量级视觉语言模型，适合基础图像理解与问答场景。",
+      "descriptionEn": "A lightweight vision-language model for basic image understanding and Q&A.",
+      "meta": {
+        "参数规模": "0.5B",
+        "量化": "Q4_1"
+      },
+      "metaEn": {
+        "Parameters": "0.5B",
+        "Quantization": "Q4_1"
+      },
+      "performance": {
+        "Quant": "Q4_1",
+        "TG128(token/s)": "58",
+        "量化类型": "Q4_1"
+      },
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4_1.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4_1.tar.gz.md5",
+      "plat": [
+        "K3"
+      ]
+    },
+    {
+      "id": "Qwen3.5-0.8B",
+      "categoryIds": [
+        "vlm"
+      ],
+      "iconSrc": "",
+      "experienceKind": "vlm",
+      "title": "Qwen3.5-0.8B",
+      "titleEn": "Qwen3.5-0.8B",
+      "description": "Qwen3.5 0.8B 视觉语言模型，支持图文理解与多轮对话。",
+      "descriptionEn": "A Qwen3.5 0.8B vision-language model supporting image-text understanding and multi-turn dialogue.",
+      "meta": {
+        "参数规模": "0.8B",
+        "量化": "Q4_1"
+      },
+      "metaEn": {
+        "Parameters": "0.8B",
+        "Quantization": "Q4_1"
+      },
+      "performance": {
+        "Quant": "Q4_1",
+        "TG128(token/s)": "40",
+        "量化类型": "Q4_1"
+      },
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz.md5",
+      "plat": [
+        "K3"
+      ]
+    },
+    {
+      "id": "Qwen3.5-2B",
+      "categoryIds": [
+        "vlm"
+      ],
+      "iconSrc": "",
+      "experienceKind": "vlm",
+      "title": "Qwen3.5-2B",
+      "titleEn": "Qwen3.5-2B",
+      "description": "Qwen3.5 2B 视觉语言模型，更强的图文理解与推理能力。",
+      "descriptionEn": "A Qwen3.5 2B vision-language model with stronger image-text understanding and reasoning.",
+      "meta": {
+        "参数规模": "2B",
+        "量化": "Q4_1"
+      },
+      "metaEn": {
+        "Parameters": "2B",
+        "Quantization": "Q4_1"
+      },
+      "performance": {
+        "Quant": "Q4_1",
+        "TG128(token/s)": "26",
+        "量化类型": "Q4_1"
+      },
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz.md5",
+      "plat": [
+        "K3"
+      ]
+    },
+    {
+      "id": "Qwen3.5-4B",
+      "categoryIds": [
+        "vlm"
+      ],
+      "iconSrc": "",
+      "experienceKind": "vlm",
+      "title": "Qwen3.5-4B",
+      "titleEn": "Qwen3.5-4B",
+      "description": "Qwen3.5 4B 视觉语言模型，高精度图文理解与复杂推理。",
+      "descriptionEn": "A Qwen3.5 4B vision-language model for high-accuracy image-text understanding and complex reasoning.",
+      "meta": {
+        "参数规模": "4B",
+        "量化": "Q4_1"
+      },
+      "metaEn": {
+        "Parameters": "4B",
+        "Quantization": "Q4_1"
+      },
+      "performance": {
+        "Quant": "Q4_1",
+        "TG128(token/s)": "13",
+        "量化类型": "Q4_1"
+      },
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz.md5",
+      "plat": [
+        "K3"
+      ]
+    },
+    {
+      "id": "qwen30ba3b-mm-q4_1",
+      "categoryIds": [
+        "vlm"
+      ],
+      "iconSrc": "",
+      "experienceKind": "vlm",
+      "title": "Qwen3-30B-A3B-VL",
+      "titleEn": "Qwen3-30B-A3B-VL",
+      "description": "Qwen3 30B 参数 MoE 视觉语言模型，激活 3B 专家，强大推理能力。",
+      "descriptionEn": "A Qwen3 30B MoE vision-language model with 3B activated experts for powerful reasoning.",
+      "meta": {
+        "参数规模": "30B / A3B",
+        "量化": "Q4_1"
+      },
+      "metaEn": {
+        "Parameters": "30B / A3B",
+        "Quantization": "Q4_1"
+      },
+      "performance": {
+        "Quant": "Q4_1",
+        "TG128(token/s)": "18",
+        "量化类型": "Q4_1"
+      },
+      "downloadUrl": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4_1.tar.gz",
+      "downloadmd5Url": "https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4_1.tar.gz.md5",
+      "plat": [
+        "K3"
+      ]
+    }
+  ]
+}

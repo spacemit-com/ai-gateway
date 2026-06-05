@@ -167,3 +167,35 @@ rerank:
       url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Bge-Reranker-V2-M3-Q4_0.gguf
     - id: qwen3-reranker-0.6b-q4_0
       url: https://archive.spacemit.com/spacemit-ai/model_zoo/rerank/Qwen3-Reranker-0.6B-Q4_0.gguf
+
+vlm:
+  backend: "fastvlm-mm-0.5b-q4_1"         # 默认后端
+  default_args: ["--ctx-size", "4096", "--threads", "8", "--reasoning", "off"]
+  port_pool:
+    start: 18800
+    end: 18900
+  storage:
+    base_dir: "~/.cache/spacemit-ai-gateway/vlm"
+    models_dir: "~/.cache/models/vlm"
+    db_path: "~/.cache/spacemit-ai-gateway/vlm/db.sqlite"
+  models:
+    - id: fastvlm-mm-0.5b-q4_1
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/fastvlm-mm-0.5b-q4_1.tar.gz
+      size: 766M
+      local_dir: fastvlm-mm-0.5b-q4_1
+    - id: Qwen3.5-0.8B
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-0.8B.tar.gz
+      size: 932M
+      local_dir: Qwen3.5-0.8B
+    - id: Qwen3.5-2B
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-2B.tar.gz
+      size: 2.6G
+      local_dir: Qwen3.5-2B
+    - id: Qwen3.5-4B
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/Qwen3.5-4B.tar.gz
+      size: 3.9G
+      local_dir: Qwen3.5-4B
+    - id: qwen30ba3b-mm-q4_1
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/vlm/qwen30ba3b-mm-q4_1.tar.gz
+      size: 17.6G
+      local_dir: qwen30ba3b-mm-q4_1
