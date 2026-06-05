@@ -191,6 +191,9 @@ const _EN = {
   '生成速度': 'Generation Speed',
   'Prompt 处理': 'Prompt Processing',
   '清除会话缓存': 'Clear Cache',
+  '请描述这张图片': 'Please describe this image',
+  '开始和 {model} 对话…': 'Start chatting with {model}…',
+  '支持上传图片进行多模态理解': 'Upload an image for multimodal understanding',
 
   // Config
   '系统配置': 'Settings',

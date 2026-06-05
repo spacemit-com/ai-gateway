@@ -154,8 +154,7 @@ function normalizeBBox(item) {
     x2 = x1 + w;
     y2 = y1 + h;
   } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 <= x1 || y2 <= y1)) {
-    x2 = x1 + x2;
-    y2 = y1 + y2;
+    return { bbox: [], normalized };
   }
 
   return { bbox: [x1, y1, x2, y2], normalized };
@@ -216,7 +215,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const [imgFile, setImgFile] = useStateV(null);
   const [imgUrlB, setImgUrlB] = useStateV(null);
   const [imgFileB, setImgFileB] = useStateV(null);
-  const [imgSize, setImgSize] = useStateV({ w: 1, h: 1, renderedW: 1, renderedH: 1 });
+  const [imgSize, setImgSize] = useStateV({ w: 0, h: 0, renderedW: 0, renderedH: 0 });
   const [loading, setLoading] = useStateV(false);
   const [error, setError] = useStateV('');
   const [loadError, setLoadError] = useStateV('');
@@ -430,6 +429,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const onFile = (e) => {
     const f = e.target.files[0]; if (!f) return;
     setImgFile(f); setImgUrl(URL.createObjectURL(f));
+    setImgSize({ w: 0, h: 0, renderedW: 0, renderedH: 0 });
     setResults(null); setSimilarity(null); setTiming(null); setError('');
   };
   const onFileB = (e) => {
@@ -498,6 +498,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const segments = results?.segment || [];
   const classifications = results?.classify || [];
   const emotions = results?.emotion || [];
+  const imageScaleReady = imgSize.w > 0 && imgSize.h > 0 && imgSize.renderedW > 0 && imgSize.renderedH > 0;
 
   const btnLabel = isArcface
     ? (loading ? t('推理中…') : !modelReady ? t('模型加载中…') : t('计算相似度'))
@@ -723,7 +724,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                     style={{ maxWidth: '100%', maxHeight: 560, display: 'block', borderRadius: 6 }}/>
 
                   {/* Detection overlay */}
-                  {hasDetect && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
+                  {hasDetect && imageScaleReady && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
                     const box = scaleBoxForImage(d.bbox, imgSize, d.bboxNormalized);
                     if (!box) return null;
                     const [x1, y1, x2, y2] = box;
@@ -752,7 +753,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   })}
 
                   {/* Pose overlay */}
-                  {hasPose && poses.length > 0 && (
+                  {hasPose && imageScaleReady && poses.length > 0 && (
                     <svg style={{
                       position: 'absolute', top: 0, left: 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
@@ -785,7 +786,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   )}
 
                   {/* Segment overlay */}
-                  {hasSegment && segments.length > 0 && (
+                  {hasSegment && imageScaleReady && segments.length > 0 && (
                     <svg style={{
                       position: 'absolute', top: 0, left: 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
@@ -1043,7 +1044,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
               color: 'var(--text-dim)', border: '1px solid var(--border)',
             }}>
               {mode === 'camera' ? (
-                <>WS {visionApi.streamUrl().replace(/^ws/, 'ws')}<br/>&nbsp;&nbsp;model_id={model.id}</>
+                <>WS {visionApi.streamUrl().replace(/^ws/, 'ws')}<br/>&nbsp;&nbsp;model_id={backendModelId}</>
               ) : (
                 <>POST {apiEndpoint}<br/>
                 {isArcface

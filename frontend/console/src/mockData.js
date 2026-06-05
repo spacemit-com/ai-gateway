@@ -363,6 +363,12 @@ window.initModelCatalog = async function() {
       track: '目标跟踪', vlm: '视觉语言',
     };
     const buildVisionDesc = (caps) => caps.map(c => visionDescMap[c] || c).join(' + ') || 'Vision';
+    const vlmStatusMap = {
+      loaded: 'ready', loading: 'ready', ready: 'ready',
+      downloaded: 'idle', available: 'idle', downloading: 'idle', unloaded: 'idle',
+      error: 'offline', offline: 'offline',
+    };
+    const vlmDisplayStatus = (status) => vlmStatusMap[status] || 'idle';
 
     const mappedVisionModels = visionModels.map(m => {
       const rawModelId = m.model_id || m.id;
@@ -385,16 +391,13 @@ window.initModelCatalog = async function() {
           ...(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
           ['后端', m.backend || '-'],
         ],
-        status: m.status === 'ready' ? 'ready' : 'idle', calls: 0, latencyMs: 0,
+        status: domain === 'vlm' ? vlmDisplayStatus(m.status) : (m.status === 'ready' ? 'ready' : 'idle'),
+        calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
     const visionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain !== 'vlm'));
     const vlmFromVisionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain === 'vlm'));
 
-    const vlmStatusMap = {
-      loaded: 'ready', loading: 'ready', downloaded: 'idle',
-      available: 'idle', downloading: 'idle', error: 'offline',
-    };
     const vlmList = vlmModels.map(m => {
       const modelId = m.id || m.model || m.model_id;
       if (!modelId) return null;
@@ -405,10 +408,15 @@ window.initModelCatalog = async function() {
       return {
         ...(meta || {}),
         id: modelId, name: meta?.name || modelId, icon: meta?.icon || 'image', domain: 'vlm',
+        source_type: m.source_type,
+        url: m.url,
+        local_path: m.local_path,
+        api_base_url: m.api_base_url,
+        is_preset: m.is_preset,
         capabilities: ['vlm'],
         desc: meta?.desc || ((m.source_type === 'remote' ? 'Remote · ' : 'VLM · ') + source),
         meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', m.status || '-']],
-        status: vlmStatusMap[m.status] || 'idle', calls: 0, latencyMs: 0,
+        status: vlmDisplayStatus(m.status), calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
 

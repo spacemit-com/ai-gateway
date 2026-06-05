@@ -1,6 +1,15 @@
 // Playground —— LLM / VLM 通用对话
 const { useState: useStateP, useRef: useRefP, useEffect: useEffectP } = React;
 
+function serializeChatMessage(message) {
+  const { _img, ...rest } = message;
+  if (Array.isArray(rest.content)) {
+    const textPart = rest.content.find(part => part && part.type === 'text');
+    rest.content = textPart?.text || rest._preview || '';
+  }
+  return rest;
+}
+
 function PlaygroundPage({ model, onBack }) {
   const { Icon, llmApi, vlmApi, t } = window;
   const [messages, setMessages] = useStateP([]);
@@ -22,6 +31,7 @@ function PlaygroundPage({ model, onBack }) {
   const storeDomain = isVLM ? 'vlm' : 'llm';
   const endpointPath = isVLM ? '/v1/vlm/chat/completions' : '/v1/llm/chat/completions';
   const historyType = isVLM ? 'VLM' : 'LLM';
+  const defaultImagePrompt = t('请描述这张图片');
 
   useEffectP(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [messages]);
 
@@ -37,10 +47,7 @@ function PlaygroundPage({ model, onBack }) {
 
   useEffectP(() => {
     if (messages.length === 0) return;
-    const toSave = messages.map(m => {
-      const { _img, ...rest } = m;
-      return rest;
-    });
+    const toSave = messages.map(serializeChatMessage);
     window.pageStateStore?.save(storeDomain, model.id, { messages: toSave });
   }, [messages, model.id, storeDomain]);
 
@@ -65,12 +72,12 @@ function PlaygroundPage({ model, onBack }) {
     let userContent = input;
     if (isVLM && imgDataUrl) {
       userContent = [
-        { type: 'text', text: input || '请描述这张图片' },
+        { type: 'text', text: input || defaultImagePrompt },
         { type: 'image_url', image_url: { url: imgDataUrl } },
       ];
     }
 
-    const userPreview = input || (isVLM && imgDataUrl ? '请描述这张图片' : input);
+    const userPreview = input || (isVLM && imgDataUrl ? defaultImagePrompt : input);
     const inputPreview = userPreview.slice(0, 50) + (userPreview.length > 50 ? '…' : '');
     const userMsg = { role: 'user', content: userContent, _preview: userPreview, _img: imgDataUrl };
     const history = [...messages, userMsg];
@@ -195,8 +202,8 @@ function PlaygroundPage({ model, onBack }) {
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--text-low)', margin: 'auto',
                             fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                开始和 {model.name} 对话…
-                {isVLM && <div className="mt-2">支持上传图片进行多模态理解</div>}
+                {t('开始和 {model} 对话…').replace('{model}', model.name)}
+                {isVLM && <div className="mt-2">{t('支持上传图片进行多模态理解')}</div>}
               </div>
             )}
             {messages.map((m, i) => (
