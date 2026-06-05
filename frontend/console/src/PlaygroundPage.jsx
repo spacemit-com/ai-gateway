@@ -5,7 +5,7 @@ function serializeChatMessage(message) {
   const { _img, _preview, ...rest } = message;
   if (Array.isArray(rest.content)) {
     const textPart = rest.content.find(part => part && part.type === 'text');
-    rest.content = textPart?.text || _preview || '';
+    rest.content = textPart?.text != null ? textPart.text : (_preview || '');
   }
   return rest;
 }

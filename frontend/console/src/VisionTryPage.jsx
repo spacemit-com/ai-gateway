@@ -373,7 +373,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
           if (msg.event === 'ready') {
             startSendLoop(ws, video);
           } else if (msg.event === 'frame_result') {
-            setStreamDetections(pickDetections(msg).map(normalizeDetection).filter(Boolean));
+            setStreamDetections(detectionList(msg.detections).map(normalizeDetection).filter(Boolean));
             setStreamPose(msg.pose || null);
             setStreamEmotion(msg.emotion || null);
             setStreamClassify(msg.classify || null);
