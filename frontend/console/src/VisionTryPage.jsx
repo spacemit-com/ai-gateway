@@ -188,15 +188,18 @@ function normalizeDetection(item) {
   };
 }
 
-function scaleBoxForImage(bbox, size, normalized = false) {
+function renderBoxForSize(detection, sourceSize, renderedSize) {
+  const bbox = detection?.bbox || [];
   const [x1, y1, x2, y2] = bbox.map(Number);
   if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
-  if (!normalized) return [x1, y1, x2, y2];
-  if (!size?.w || !size?.h) return null;
-  if ([x1, y1, x2, y2].every(Number.isFinite)) {
-    return [x1 * size.w, y1 * size.h, x2 * size.w, y2 * size.h];
+  if (!renderedSize?.w || !renderedSize?.h) return null;
+  if (detection.bboxNormalized) {
+    return [x1 * renderedSize.w, y1 * renderedSize.h, x2 * renderedSize.w, y2 * renderedSize.h];
   }
-  return null;
+  if (!sourceSize?.w || !sourceSize?.h) return null;
+  const sx = renderedSize.w / sourceSize.w;
+  const sy = renderedSize.h / sourceSize.h;
+  return [x1 * sx, y1 * sy, x2 * sx, y2 * sy];
 }
 
 function VisionTryPage({ model, onBack: _onBack }) {
@@ -548,11 +551,13 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && (hasDetect || hasTrack) && streamDetections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const box = scaleBoxForImage(d.bbox, { w: video.videoWidth, h: video.videoHeight }, d.bboxNormalized);
+                  const box = renderBoxForSize(
+                    d,
+                    { w: video.videoWidth, h: video.videoHeight },
+                    { w: video.clientWidth, h: video.clientHeight },
+                  );
                   if (!box) return null;
                   const [x1, y1, x2, y2] = box;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
                   const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
                   const c = DET_COLORS[ci % DET_COLORS.length];
                   const labelText = d.label || 'object';
@@ -561,8 +566,8 @@ function VisionTryPage({ model, onBack: _onBack }) {
                     : `${labelText} ${((d.score ?? 1) * 100).toFixed(0)}%`;
                   return (
                     <div key={'det-'+i} style={{
-                      position: 'absolute', left: x1 * sx, top: y1 * sy,
-                      width: (x2 - x1) * sx, height: (y2 - y1) * sy,
+                      position: 'absolute', left: x1, top: y1,
+                      width: x2 - x1, height: y2 - y1,
                       border: `2px solid ${c}`, boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
                       pointerEvents: 'none',
                     }}>
@@ -607,13 +612,15 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && hasEmotion && streamEmotion && (() => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
                   return streamEmotion.map((em, ei) => {
                     const det = streamDetections[ei];
-                    const box = det ? scaleBoxForImage(det.bbox, { w: video.videoWidth, h: video.videoHeight }, det.bboxNormalized) : null;
-                    const x = box ? box[0] * sx : 10;
-                    const y = box ? box[3] * sy + 4 : 30 + ei * 28;
+                    const box = det ? renderBoxForSize(
+                      det,
+                      { w: video.videoWidth, h: video.videoHeight },
+                      { w: video.clientWidth, h: video.clientHeight },
+                    ) : null;
+                    const x = box ? box[0] : 10;
+                    const y = box ? box[3] + 4 : 30 + ei * 28;
                     const c = EMOTION_COLORS[em.label] || '#8a8e95';
                     return (
                       <div key={'emo-'+ei} style={{
@@ -725,11 +732,13 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
                   {/* Detection overlay */}
                   {hasDetect && imageScaleReady && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
-                    const box = scaleBoxForImage(d.bbox, imgSize, d.bboxNormalized);
+                    const box = renderBoxForSize(
+                      d,
+                      { w: imgSize.w, h: imgSize.h },
+                      { w: imgSize.renderedW, h: imgSize.renderedH },
+                    );
                     if (!box) return null;
                     const [x1, y1, x2, y2] = box;
-                    const sx = imgSize.renderedW / imgSize.w;
-                    const sy = imgSize.renderedH / imgSize.h;
                     const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
                     const c = DET_COLORS[ci % DET_COLORS.length];
                     const lbl = hasTrack && d.track_id >= 0
@@ -737,8 +746,8 @@ function VisionTryPage({ model, onBack: _onBack }) {
                       : `${d.label} ${((d.score ?? 1) * 100).toFixed(0)}%`;
                     return (
                       <div key={i} style={{
-                        position: 'absolute', left: x1 * sx, top: y1 * sy,
-                        width: (x2 - x1) * sx, height: (y2 - y1) * sy,
+                        position: 'absolute', left: x1, top: y1,
+                        width: x2 - x1, height: y2 - y1,
                         border: `2px solid ${c}`, boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
                         pointerEvents: 'none',
                       }}>

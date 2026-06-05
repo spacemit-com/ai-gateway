@@ -398,10 +398,11 @@ window.initModelCatalog = async function() {
     const visionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain !== 'vlm'));
     const vlmFromVisionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain === 'vlm'));
 
-    const vlmList = vlmModels.map(m => {
+    const primaryVlmList = vlmModels.map(m => {
       const modelId = m.id || m.model || m.model_id;
       if (!modelId) return null;
       const meta = vlmCatalogMeta(modelId);
+      const displayStatus = vlmDisplayStatus(m.status);
       const source = m.source_type === 'remote'
         ? (m.api_base_url || 'Remote API')
         : (m.url || m.local_path || 'Local VLM');
@@ -415,8 +416,8 @@ window.initModelCatalog = async function() {
         is_preset: m.is_preset,
         capabilities: ['vlm'],
         desc: meta?.desc || ((m.source_type === 'remote' ? 'Remote · ' : 'VLM · ') + source),
-        meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', m.status || '-']],
-        status: vlmDisplayStatus(m.status), calls: 0, latencyMs: 0,
+        meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', displayStatus]],
+        status: displayStatus, calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
 
@@ -428,8 +429,9 @@ window.initModelCatalog = async function() {
       window.MODEL_CATALOG = { ...window.MODEL_CATALOG, vision: [...visionList, ...staticVision] };
     }
 
-    if (vlmList.length > 0 || vlmFromVisionList.length > 0) {
-      const liveVlm = dedupeCatalogModels([...vlmList, ...vlmFromVisionList]);
+    if (primaryVlmList.length > 0 || vlmFromVisionList.length > 0) {
+      // Prefer the dedicated VLM endpoint when both APIs report the same model.
+      const liveVlm = dedupeCatalogModels([...primaryVlmList, ...vlmFromVisionList]);
       const liveIds = new Set(liveVlm.map(m => m.domain + '-' + m.id));
       const staticVlm = (window.MODEL_CATALOG.vlm || []).filter(
         m => !liveIds.has(m.domain + '-' + m.id)
