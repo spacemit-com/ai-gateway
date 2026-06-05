@@ -68,8 +68,8 @@ function toFiniteNumber(value) {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function readBoxObject(box) {
-  if (!box || typeof box !== 'object') return [];
+function readBoxObject(box, normalized) {
+  if (!box || typeof box !== 'object') return { bbox: [], normalized };
   const x1 = box.x1 ?? box.left ?? box.xmin ?? box.x;
   const y1 = box.y1 ?? box.top ?? box.ymin ?? box.y;
   let x2 = box.x2 ?? box.right ?? box.xmax;
@@ -80,7 +80,7 @@ function readBoxObject(box) {
     x2 = Number(x1) + Number(w);
     y2 = Number(y1) + Number(h);
   }
-  return [x1, y1, x2, y2];
+  return { bbox: [x1, y1, x2, y2], normalized };
 }
 
 function xywhToBBox(values, normalized) {
@@ -137,7 +137,7 @@ function normalizeBBox(item) {
   if (Array.isArray(raw)) {
     box = raw.slice(0, 4);
   } else if (raw && typeof raw === 'object') {
-    box = readBoxObject(raw);
+    box = readBoxObject(raw, normalized).bbox;
   } else {
     box = [
       d.x1 ?? d.left ?? d.xmin ?? d.x,
@@ -153,7 +153,7 @@ function normalizeBBox(item) {
   if ((x2 == null || y2 == null) && x1 != null && y1 != null && w != null && h != null) {
     x2 = x1 + w;
     y2 = y1 + h;
-  } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 <= x1 || y2 <= y1)) {
+  } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 < x1 || y2 < y1)) {
     return { bbox: [], normalized };
   }
 
