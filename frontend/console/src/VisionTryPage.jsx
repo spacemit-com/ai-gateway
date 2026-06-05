@@ -83,6 +83,23 @@ function readBoxObject(box) {
   return [x1, y1, x2, y2];
 }
 
+function xywhToBBox(values, normalized) {
+  if (!Array.isArray(values) || values.length < 4) return { bbox: [], normalized };
+  const [x, y, w, h] = values.slice(0, 4).map(toFiniteNumber);
+  if ([x, y, w, h].some(v => v == null)) return { bbox: [], normalized };
+  return { bbox: [x, y, x + w, y + h], normalized };
+}
+
+function readXYWHObject(box, normalized) {
+  if (!box || typeof box !== 'object') return { bbox: [], normalized };
+  const x = toFiniteNumber(box.x ?? box.x1 ?? box.left ?? box.xmin);
+  const y = toFiniteNumber(box.y ?? box.y1 ?? box.top ?? box.ymin);
+  const w = toFiniteNumber(box.w ?? box.width);
+  const h = toFiniteNumber(box.h ?? box.height);
+  if ([x, y, w, h].some(v => v == null)) return { bbox: [], normalized };
+  return { bbox: [x, y, x + w, y + h], normalized };
+}
+
 function hasNormalizedBoxFormat(format) {
   const text = String(format || '').toLowerCase();
   return text.includes('norm') || text.includes('relative') || text.includes('ratio') ||
@@ -102,17 +119,20 @@ function normalizeBBox(item) {
   const xywh = d.xywh ?? d.bbox_xywh ?? d.xywhn ?? d.bbox_xywhn;
   const xywhNormalized = hasExplicitNormalizedBox(d, xywh);
   if (Array.isArray(xywh)) {
-    if (xywh.length < 4) return { bbox: [], normalized: xywhNormalized };
-    const [x, y, w, h] = xywh.slice(0, 4).map(toFiniteNumber);
-    if ([x, y, w, h].some(v => v == null)) return { bbox: [], normalized: xywhNormalized };
-    return { bbox: [x, y, x + w, y + h], normalized: xywhNormalized };
+    return xywhToBBox(xywh, xywhNormalized);
   }
   if (xywh && typeof xywh === 'object') {
-    return { bbox: readBoxObject(xywh).map(toFiniteNumber), normalized: xywhNormalized };
+    return readXYWHObject(xywh, xywhNormalized);
   }
 
   let raw = Array.isArray(d) ? d : (d.bbox ?? d.box ?? d.xyxy ?? d.xyxyn ?? d.bbox_xyxyn ?? d.rect ?? d.bounds);
   const normalized = hasExplicitNormalizedBox(d, raw);
+  const boxFormat = String(d.bbox_format ?? d.box_format ?? d.format ?? raw?.bbox_format ?? raw?.box_format ?? raw?.format ?? '').toLowerCase();
+  if (boxFormat.includes('xywh') && raw != null) {
+    if (Array.isArray(raw)) return xywhToBBox(raw, normalized);
+    if (typeof raw === 'object') return readXYWHObject(raw, normalized);
+  }
+
   let box = [];
   if (Array.isArray(raw)) {
     box = raw.slice(0, 4);
@@ -130,11 +150,7 @@ function normalizeBBox(item) {
   let [x1, y1, x2, y2] = box.map(toFiniteNumber);
   const w = toFiniteNumber(d.w ?? d.width ?? raw?.w ?? raw?.width);
   const h = toFiniteNumber(d.h ?? d.height ?? raw?.h ?? raw?.height);
-  const boxFormat = String(d.bbox_format ?? d.box_format ?? d.format ?? '').toLowerCase();
-  if (boxFormat.includes('xywh') && x1 != null && y1 != null && x2 != null && y2 != null) {
-    x2 = x1 + x2;
-    y2 = y1 + y2;
-  } else if ((x2 == null || y2 == null) && x1 != null && y1 != null && w != null && h != null) {
+  if ((x2 == null || y2 == null) && x1 != null && y1 != null && w != null && h != null) {
     x2 = x1 + w;
     y2 = y1 + h;
   } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 <= x1 || y2 <= y1)) {
@@ -175,11 +191,13 @@ function normalizeDetection(item) {
 
 function scaleBoxForImage(bbox, size, normalized = false) {
   const [x1, y1, x2, y2] = bbox.map(Number);
-  if (!normalized || !size?.w || !size?.h) return [x1, y1, x2, y2];
+  if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+  if (!normalized) return [x1, y1, x2, y2];
+  if (!size?.w || !size?.h) return null;
   if ([x1, y1, x2, y2].every(Number.isFinite)) {
     return [x1 * size.w, y1 * size.h, x2 * size.w, y2 * size.h];
   }
-  return [x1, y1, x2, y2];
+  return null;
 }
 
 function VisionTryPage({ model, onBack: _onBack }) {
@@ -529,7 +547,9 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && (hasDetect || hasTrack) && streamDetections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const [x1, y1, x2, y2] = scaleBoxForImage(d.bbox, { w: video.videoWidth, h: video.videoHeight }, d.bboxNormalized);
+                  const box = scaleBoxForImage(d.bbox, { w: video.videoWidth, h: video.videoHeight }, d.bboxNormalized);
+                  if (!box) return null;
+                  const [x1, y1, x2, y2] = box;
                   const sx = video.clientWidth / video.videoWidth;
                   const sy = video.clientHeight / video.videoHeight;
                   const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
@@ -704,7 +724,9 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
                   {/* Detection overlay */}
                   {hasDetect && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
-                    const [x1, y1, x2, y2] = scaleBoxForImage(d.bbox, imgSize, d.bboxNormalized);
+                    const box = scaleBoxForImage(d.bbox, imgSize, d.bboxNormalized);
+                    if (!box) return null;
+                    const [x1, y1, x2, y2] = box;
                     const sx = imgSize.renderedW / imgSize.w;
                     const sy = imgSize.renderedH / imgSize.h;
                     const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;

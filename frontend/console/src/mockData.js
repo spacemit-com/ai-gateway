@@ -52,35 +52,35 @@ window.MODEL_CATALOG = {
   ],
   vlm: [
     {
-      id: 'fastvlm-mm-0.5b-q4_1', name: 'FastVLM-MM 0.5B', icon: 'eye', domain: 'vlm',
+      id: 'fastvlm-mm-0.5b-q4_1', name: 'FastVLM-MM 0.5B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'FastVLM 轻量视觉语言模型，支持图片理解与对话。',
       meta: [['类型', '视觉语言'], ['规模', '0.5B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-0.8B', name: 'Qwen3.5-0.8B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-0.8B', name: 'Qwen3.5-0.8B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 0.8B 视觉语言模型，适合嵌入式图片问答。',
       meta: [['类型', '视觉语言'], ['规模', '0.8B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-2B', name: 'Qwen3.5-2B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-2B', name: 'Qwen3.5-2B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 2B 视觉语言模型，支持图片理解与对话。',
       meta: [['类型', '视觉语言'], ['规模', '2B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-4B', name: 'Qwen3.5-4B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-4B', name: 'Qwen3.5-4B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 4B 视觉语言模型，支持更强的多模态理解。',
       meta: [['类型', '视觉语言'], ['规模', '4B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'qwen30ba3b-mm-q4_1', name: 'Qwen3 30B-A3B MM', icon: 'eye', domain: 'vlm',
+      id: 'qwen30ba3b-mm-q4_1', name: 'Qwen3 30B-A3B MM', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3 MoE 视觉语言模型，适合高能力图片理解场景。',
       meta: [['类型', '视觉语言'], ['规模', '30B-A3B']],
@@ -268,7 +268,7 @@ function visionCatalogMeta(id) {
 
 const VLM_MODEL_META_ALIASES = {
   'qwen2.5-vl-3b': {
-    id: 'qwen2.5-vl-3b', name: 'Qwen2.5-VL-3B', icon: 'eye', domain: 'vlm',
+    id: 'qwen2.5-vl-3b', name: 'Qwen2.5-VL-3B', icon: 'image', domain: 'vlm',
     capabilities: ['vlm'],
     desc: 'Qwen2.5 3B 视觉语言模型，支持图像理解与对话。',
     meta: [['参数规模', '3B'], ['格式', 'GGUF']],
@@ -377,7 +377,7 @@ window.initModelCatalog = async function() {
         ...(meta || {}),
         id: modelId,
         name: meta?.name || modelId,
-        icon: meta?.icon || 'eye',
+        icon: meta?.icon || (domain === 'vlm' ? 'image' : 'eye'),
         domain,
         capabilities: caps,
         desc: meta?.desc || (domain === 'vlm' ? '视觉语言模型' : buildVisionDesc(caps)),
@@ -404,7 +404,7 @@ window.initModelCatalog = async function() {
         : (m.url || m.local_path || 'Local VLM');
       return {
         ...(meta || {}),
-        id: modelId, name: meta?.name || modelId, icon: meta?.icon || 'eye', domain: 'vlm',
+        id: modelId, name: meta?.name || modelId, icon: meta?.icon || 'image', domain: 'vlm',
         capabilities: ['vlm'],
         desc: meta?.desc || ((m.source_type === 'remote' ? 'Remote · ' : 'VLM · ') + source),
         meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', m.status || '-']],

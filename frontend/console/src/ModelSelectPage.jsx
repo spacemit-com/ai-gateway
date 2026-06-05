@@ -49,7 +49,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
   const switchCategory = (k) => { setCategory(k); setSubCat('all'); setSearch(''); };
 
   const categoryLabels = { text: t('语言模型'), voice: t('语音模型'), vision: t('视觉模型'), vlm: t('VLM 模型') };
-  const categoryIcons = { text: 'grid', voice: 'mic', vision: 'eye', vlm: 'eye' };
+  const categoryIcons = { text: 'grid', voice: 'mic', vision: 'eye', vlm: 'image' };
 
   const allModels = catalog[category] || [];
   const subCatLabels = category === 'text'
