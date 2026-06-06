@@ -1,6 +1,7 @@
 frontend/index.html       opt/spacemit-ai-gateway/frontend/
 frontend/landing.css      opt/spacemit-ai-gateway/frontend/
 frontend/landing-hero.js  opt/spacemit-ai-gateway/frontend/
+frontend/serve.py         opt/spacemit-ai-gateway/frontend/
 frontend/console          opt/spacemit-ai-gateway/frontend/
 configs                   opt/spacemit-ai-gateway/
 schema/*.json             opt/spacemit-ai-gateway/schema/

@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/spacemit-ai-gateway/frontend
-ExecStart=/usr/bin/python3 -m http.server 8326 --bind ::
+ExecStart=/usr/bin/python3 /opt/spacemit-ai-gateway/frontend/serve.py 8326 --bind ::
 Restart=on-failure
 RestartSec=5
 

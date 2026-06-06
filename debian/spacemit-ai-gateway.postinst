@@ -31,6 +31,11 @@ case "$1" in
         # ---- 让 venv 多用户可读 ----
         chmod -R a+rX /opt/spacemit-ai-gateway/venv
 
+        # ---- 避免浏览器沿用 deb 固定 mtime 下的旧前端缓存 ----
+        if [ -d /opt/spacemit-ai-gateway/frontend ]; then
+            find /opt/spacemit-ai-gateway/frontend -type f -exec touch {} +
+        fi
+
         # ---- 安装者身份继承：用 sudo 调用者作为 service 运行用户 ----
         TARGET_USER="${SUDO_USER:-}"
         if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
