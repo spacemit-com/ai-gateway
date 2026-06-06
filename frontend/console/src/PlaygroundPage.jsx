@@ -169,7 +169,7 @@ function PlaygroundPage({ model, onBack }) {
   };
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="back-link" onClick={onBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>
@@ -194,8 +194,8 @@ function PlaygroundPage({ model, onBack }) {
       </div>
 
       <div className="try-layout">
-        <div className="try-main" style={{ display: 'flex', flexDirection: 'column', padding: 0, maxHeight: 'calc(100vh - 240px)' }}>
-          <div style={{
+        <div className="try-main playground-chat-main" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
+          <div className="playground-chat-scroll" style={{
             flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column',
             gap: 12, minHeight: 0,
           }}>

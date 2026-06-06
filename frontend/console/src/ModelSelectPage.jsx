@@ -76,6 +76,22 @@ async function loadModelForEntry(model) {
   }
 }
 
+function compactCardMeta(metaRows) {
+  const seen = new Set();
+  const rows = [];
+  for (const row of metaRows || []) {
+    if (!Array.isArray(row)) continue;
+    const key = String(row[0] ?? '').trim();
+    if (!key) continue;
+    const normalizedKey = key.toLowerCase();
+    if (seen.has(normalizedKey)) continue;
+    seen.add(normalizedKey);
+    rows.push([key, row[1] ?? '-']);
+    if (rows.length >= 4) break;
+  }
+  return rows;
+}
+
 function ModelSelectPage({ setPage, initialCategory }) {
   const { Icon, t } = window;
   const [category, setCategory] = useStateM(initialCategory || 'text');
@@ -188,6 +204,7 @@ function ModelCard({ model, onEnter, onRefresh, catLabel, catColor, catTextColor
   const [actionBusy, setActionBusy] = useStateM(false);
   const [actionError, setActionError] = useStateM('');
   const action = modelActionFor(model, t);
+  const metaRows = compactCardMeta(model.meta);
 
   const onMove = (e) => {
     if (!cardRef.current) return;
@@ -241,7 +258,7 @@ function ModelCard({ model, onEnter, onRefresh, catLabel, catColor, catTextColor
       </div>
       <div className="card-desc">{model.desc}</div>
       <div className="meta-list">
-        {model.meta.map(([k, v], i) => (
+        {metaRows.map(([k, v], i) => (
           <div key={i} className="meta-row">
             <span className="meta-key">{k}</span>
             <span className="meta-val">{v}</span>

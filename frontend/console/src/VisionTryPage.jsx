@@ -523,7 +523,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   );
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page vision-try-page">
       <div className="back-link" onClick={handleBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>
@@ -725,16 +725,11 @@ function VisionTryPage({ model, onBack: _onBack }) {
               </div>
             </div>
           ) : (
-            <div style={{
-              background: 'var(--bg-1)', border: '1px dashed var(--border-2)',
-              borderRadius: 10, padding: 16, minHeight: 420,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              position: 'relative', overflow: 'hidden',
-            }}>
+            <div className="vision-media-stage">
               {!imgUrl ? renderImageUpload() : (
-                <div style={{ position: 'relative', display: 'inline-block' }}>
+                <div className="vision-media-wrap">
                   <img ref={imgRef} src={imgUrl} onLoad={onImgLoad}
-                    style={{ maxWidth: '100%', maxHeight: 560, display: 'block', borderRadius: 6 }}/>
+                    style={{ display: 'block', borderRadius: 6 }}/>
 
                   {/* Detection overlay */}
                   {hasDetect && imageScaleReady && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {

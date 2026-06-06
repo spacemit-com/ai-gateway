@@ -267,7 +267,17 @@ function visionCatalogMeta(id) {
 }
 
 function cleanVisionMetaRows(metaRows) {
-  return (metaRows || []).filter(([key]) => key !== '后端');
+  const seen = new Set();
+  return (metaRows || []).filter(row => {
+    if (!Array.isArray(row)) return false;
+    const key = String(row[0] ?? '').trim();
+    if (!key) return false;
+    const normalizedKey = key.toLowerCase();
+    if (key === '后端' || normalizedKey === 'backend') return false;
+    if (seen.has(normalizedKey)) return false;
+    seen.add(normalizedKey);
+    return true;
+  });
 }
 
 const VLM_MODEL_META_ALIASES = {

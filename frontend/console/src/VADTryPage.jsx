@@ -229,7 +229,7 @@ function VADTryPage({ model, onBack }) {
   const rtf = result && result.duration_ms > 0 ? (result.processing_ms / result.duration_ms) : null;
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="back-link" onClick={onBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>
