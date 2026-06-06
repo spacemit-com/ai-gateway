@@ -111,6 +111,27 @@ function ModelSelectPage({ setPage, initialCategory }) {
     setCatalog({ ...window.MODEL_CATALOG });
   };
 
+  const hasPendingCatalogModels = Object.values(catalog || {}).some(models =>
+    (models || []).some(m => ['downloading', 'loading'].includes(String(m.rawStatus || '').toLowerCase()))
+  );
+
+  useEffectM(() => {
+    if (!hasPendingCatalogModels || !window.initModelCatalog) return undefined;
+    let cancelled = false;
+    const refreshPending = async () => {
+      try {
+        await window.initModelCatalog();
+        if (!cancelled) setCatalog({ ...window.MODEL_CATALOG });
+      } catch {}
+    };
+    refreshPending();
+    const timer = setInterval(refreshPending, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [hasPendingCatalogModels]);
+
   const switchCategory = (k) => { setCategory(k); setSubCat('all'); setSearch(''); };
 
   const categoryLabels = { text: t('语言模型'), voice: t('语音模型'), vision: t('视觉模型'), vlm: t('VLM 模型') };
