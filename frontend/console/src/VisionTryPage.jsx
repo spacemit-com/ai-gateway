@@ -806,7 +806,14 @@ function VisionTryPage({ model, onBack: _onBack }) {
               }}
               style={{ cursor: loading ? 'progress' : 'pointer' }}
             >
-              <input ref={imageInputRef} type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }}/>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                onClick={e => e.stopPropagation()}
+                onChange={onFile}
+                style={{ display: 'none' }}
+              />
               {loading && (
                 <div style={{
                   position: 'absolute', top: 12, right: 12, zIndex: 3,
