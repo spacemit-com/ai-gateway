@@ -254,6 +254,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const [similarity, setSimilarity] = useStateV(null);
   const [timing, setTiming] = useStateV(null);
   const imgRef = useRefV(null);
+  const imageInputRef = useRefV(null);
 
   // Camera mode state
   const [mode, setMode] = useStateV('image');
@@ -465,6 +466,8 @@ function VisionTryPage({ model, onBack: _onBack }) {
     setImgFile(f); setImgUrl(URL.createObjectURL(f));
     setImgSize({ w: 0, h: 0, renderedW: 0, renderedH: 0 });
     setResults(null); setSimilarity(null); setTiming(null); setError('');
+    if (!isArcface) runInference(f);
+    e.target.value = '';
   };
   const onFileB = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -504,28 +507,32 @@ function VisionTryPage({ model, onBack: _onBack }) {
     return () => observer.disconnect();
   }, [imgUrl]);
 
-  const runInference = async () => {
-    if (!imgFile) return;
+  const runInference = async (file = imgFile) => {
+    if (!file) return;
+    if (!modelReady) {
+      setError(loadError || t('模型加载中…'));
+      return;
+    }
     setLoading(true); setError('');
     const _t0 = Date.now();
     try {
       if (isArcface) {
         if (imgFileB) {
-          const res = await visionApi.feature(imgFile, 'similarity', model.id, imgFileB);
+          const res = await visionApi.feature(file, 'similarity', model.id, imgFileB);
           setSimilarity(res.similarity);
           setTiming(res.timing || null);
           window.historyStore?.push({
             model: model.id, type: 'Vision',
-            input: imgFile.name || 'image',
+            input: file.name || 'image',
             output: t('相似度') + ': ' + (res.similarity * 100).toFixed(1) + '%',
             latency: Date.now() - _t0,
           });
         } else {
-          const res = await visionApi.feature(imgFile, 'embedding', model.id);
+          const res = await visionApi.feature(file, 'embedding', model.id);
           setTiming(res.timing || null);
           window.historyStore?.push({
             model: model.id, type: 'Vision',
-            input: imgFile.name || 'image',
+            input: file.name || 'image',
             output: t('特征提取'),
             latency: Date.now() - _t0,
           });
@@ -537,14 +544,14 @@ function VisionTryPage({ model, onBack: _onBack }) {
           opts.conf = threshold;
           opts.iou = iou;
         }
-        const res = await visionApi.inference(imgFile, tasks, model.id, opts);
+        const res = await visionApi.inference(file, tasks, model.id, opts);
         const resultPayload = res.results || res;
         setResults(resultPayload);
         setTiming(res.timing || null);
         const dets = pickDetections(resultPayload).map(normalizeDetection).filter(Boolean);
         window.historyStore?.push({
           model: model.id, type: 'Vision',
-          input: imgFile.name || 'image',
+          input: file.name || 'image',
           output: dets.length + ' ' + t('个目标') + ' · ' + tasks.join('+'),
           latency: Date.now() - _t0,
         });
@@ -567,12 +574,11 @@ function VisionTryPage({ model, onBack: _onBack }) {
     : (loading ? t('推理中…') : !modelReady ? t('模型加载中…') : t('开始推理'));
 
   const renderImageUpload = () => (
-    <label style={{ textAlign: 'center', cursor: 'pointer', color: 'var(--text-dim)' }}>
-      <input type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }}/>
+    <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
       <div style={{ fontSize: 48, color: 'var(--text-low)' }}>{Icon.upload({ size: 48, strokeWidth: 1 })}</div>
-      <div style={{ marginTop: 12, fontSize: 13 }}>{t('点击上传图片或拖拽至此')}</div>
+      <div style={{ marginTop: 12, fontSize: 13 }}>{t('点击上传图片')}</div>
       <div className="text-xs text-mono mt-2" style={{ color: 'var(--text-low)' }}>JPG / PNG / WebP</div>
-    </label>
+    </div>
   );
 
   return (
@@ -787,7 +793,29 @@ function VisionTryPage({ model, onBack: _onBack }) {
               </div>
             </div>
           ) : (
-            <div className="vision-media-stage">
+            <div
+              className="vision-media-stage"
+              role="button"
+              tabIndex={0}
+              onClick={() => { if (!loading) imageInputRef.current?.click(); }}
+              onKeyDown={e => {
+                if (!loading && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  imageInputRef.current?.click();
+                }
+              }}
+              style={{ cursor: loading ? 'progress' : 'pointer' }}
+            >
+              <input ref={imageInputRef} type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }}/>
+              {loading && (
+                <div style={{
+                  position: 'absolute', top: 12, right: 12, zIndex: 3,
+                  background: 'rgba(0,0,0,0.72)', border: '1px solid var(--border)',
+                  borderRadius: 6, padding: '5px 10px',
+                  color: 'var(--accent)', fontSize: 12, fontFamily: 'var(--font-mono)',
+                  pointerEvents: 'none',
+                }}>{t('推理中…')}</div>
+              )}
               {!imgUrl ? renderImageUpload() : (
                 <div className="vision-media-wrap">
                   <img ref={imgRef} src={imgUrl} onLoad={onImgLoad}
@@ -942,7 +970,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
           {/* Action buttons */}
           <div className="flex gap-3 mt-4">
-            {(imgUrl || (isArcface && imgUrl)) && (
+            {isArcface && imgUrl && (
               <>
                 <button className="btn-primary" disabled={loading || !modelReady} onClick={runInference}>
                   {btnLabel}
