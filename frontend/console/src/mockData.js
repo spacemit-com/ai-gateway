@@ -266,6 +266,10 @@ function visionCatalogMeta(id) {
   return catalog.find(m => m.id === canonical) || null;
 }
 
+function cleanVisionMetaRows(metaRows) {
+  return (metaRows || []).filter(([key]) => key !== '后端');
+}
+
 const VLM_MODEL_META_ALIASES = {
   'qwen2.5-vl-3b': {
     id: 'qwen2.5-vl-3b', name: 'Qwen2.5-VL-3B', icon: 'image', domain: 'vlm',
@@ -388,7 +392,7 @@ window.initModelCatalog = async function() {
         capabilities: caps,
         desc: meta?.desc || (domain === 'vlm' ? '视觉语言模型' : buildVisionDesc(caps)),
         meta: [
-          ...(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
+          ...cleanVisionMetaRows(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
           ['后端', m.backend || '-'],
         ],
         rawStatus: m.status,
