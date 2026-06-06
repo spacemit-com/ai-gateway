@@ -193,13 +193,38 @@ function renderBoxForSize(detection, sourceSize, renderedSize) {
   const [x1, y1, x2, y2] = bbox.map(Number);
   if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
   if (!renderedSize?.w || !renderedSize?.h) return null;
+  const ox = renderedSize.offsetX || 0;
+  const oy = renderedSize.offsetY || 0;
   if (detection.bboxNormalized) {
-    return [x1 * renderedSize.w, y1 * renderedSize.h, x2 * renderedSize.w, y2 * renderedSize.h];
+    return [
+      ox + x1 * renderedSize.w,
+      oy + y1 * renderedSize.h,
+      ox + x2 * renderedSize.w,
+      oy + y2 * renderedSize.h,
+    ];
   }
   if (!sourceSize?.w || !sourceSize?.h) return null;
   const sx = renderedSize.w / sourceSize.w;
   const sy = renderedSize.h / sourceSize.h;
-  return [x1 * sx, y1 * sy, x2 * sx, y2 * sy];
+  return [ox + x1 * sx, oy + y1 * sy, ox + x2 * sx, oy + y2 * sy];
+}
+
+function containRenderedSize(sourceW, sourceH, boxW, boxH) {
+  if (!sourceW || !sourceH || !boxW || !boxH) return null;
+  const scale = Math.min(boxW / sourceW, boxH / sourceH);
+  const w = sourceW * scale;
+  const h = sourceH * scale;
+  return {
+    w,
+    h,
+    offsetX: (boxW - w) / 2,
+    offsetY: (boxH - h) / 2,
+  };
+}
+
+function videoRenderedSize(video) {
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+  return containRenderedSize(video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
 }
 
 function VisionTryPage({ model, onBack: _onBack }) {
@@ -447,9 +472,37 @@ function VisionTryPage({ model, onBack: _onBack }) {
     setSimilarity(null); setTiming(null); setError('');
   };
   const onImgLoad = (e) => {
-    const el = e.target;
-    setImgSize({ w: el.naturalWidth, h: el.naturalHeight, renderedW: el.clientWidth, renderedH: el.clientHeight });
+    updateImageMetrics(e.target);
   };
+
+  const updateImageMetrics = (el = imgRef.current) => {
+    if (!el) return;
+    const wrap = el.parentElement;
+    const imgRect = el.getBoundingClientRect();
+    const wrapRect = wrap?.getBoundingClientRect();
+    setImgSize({
+      w: el.naturalWidth,
+      h: el.naturalHeight,
+      renderedW: imgRect.width,
+      renderedH: imgRect.height,
+      offsetX: wrapRect ? imgRect.left - wrapRect.left : 0,
+      offsetY: wrapRect ? imgRect.top - wrapRect.top : 0,
+    });
+  };
+
+  useEffectV(() => {
+    if (!imgUrl || !imgRef.current) return undefined;
+    updateImageMetrics();
+    if (!window.ResizeObserver) {
+      const onResize = () => updateImageMetrics();
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    }
+    const observer = new ResizeObserver(() => updateImageMetrics());
+    observer.observe(imgRef.current);
+    if (imgRef.current.parentElement) observer.observe(imgRef.current.parentElement);
+    return () => observer.disconnect();
+  }, [imgUrl]);
 
   const runInference = async () => {
     if (!imgFile) return;
@@ -560,7 +613,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   const box = renderBoxForSize(
                     d,
                     { w: video.videoWidth, h: video.videoHeight },
-                    { w: video.clientWidth, h: video.clientHeight },
+                    videoRenderedSize(video),
                   );
                   if (!box) return null;
                   const [x1, y1, x2, y2] = box;
@@ -590,10 +643,19 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && hasPose && streamPose && (() => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
+                  const display = videoRenderedSize(video);
+                  if (!display) return null;
+                  const sx = display.w / video.videoWidth;
+                  const sy = display.h / video.videoHeight;
                   return (
-                    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                    <svg style={{
+                      position: 'absolute',
+                      left: display.offsetX,
+                      top: display.offsetY,
+                      width: display.w,
+                      height: display.h,
+                      pointerEvents: 'none',
+                    }}>
                       {streamPose.map((p, pi) => {
                         const kps = p.keypoints || [];
                         return (
@@ -623,7 +685,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                     const box = det ? renderBoxForSize(
                       det,
                       { w: video.videoWidth, h: video.videoHeight },
-                      { w: video.clientWidth, h: video.clientHeight },
+                      videoRenderedSize(video),
                     ) : null;
                     const x = box ? box[0] : 10;
                     const y = box ? box[3] + 4 : 30 + ei * 28;
@@ -736,7 +798,12 @@ function VisionTryPage({ model, onBack: _onBack }) {
                     const box = renderBoxForSize(
                       d,
                       { w: imgSize.w, h: imgSize.h },
-                      { w: imgSize.renderedW, h: imgSize.renderedH },
+                      {
+                        w: imgSize.renderedW,
+                        h: imgSize.renderedH,
+                        offsetX: imgSize.offsetX || 0,
+                        offsetY: imgSize.offsetY || 0,
+                      },
                     );
                     if (!box) return null;
                     const [x1, y1, x2, y2] = box;
@@ -765,7 +832,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Pose overlay */}
                   {hasPose && imageScaleReady && poses.length > 0 && (
                     <svg style={{
-                      position: 'absolute', top: 0, left: 0,
+                      position: 'absolute', top: imgSize.offsetY || 0, left: imgSize.offsetX || 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
                       pointerEvents: 'none',
                     }}>
@@ -798,7 +865,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Segment overlay */}
                   {hasSegment && imageScaleReady && segments.length > 0 && (
                     <svg style={{
-                      position: 'absolute', top: 0, left: 0,
+                      position: 'absolute', top: imgSize.offsetY || 0, left: imgSize.offsetX || 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
                       pointerEvents: 'none',
                     }}>
@@ -825,7 +892,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Classify overlay on image */}
                   {hasClassify && !hasEmotion && classifications.length > 0 && (
                     <div style={{
-                      position: 'absolute', top: 12, left: 12,
+                      position: 'absolute', top: (imgSize.offsetY || 0) + 12, left: (imgSize.offsetX || 0) + 12,
                       background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
                       pointerEvents: 'none', maxWidth: '60%',
                     }}>
@@ -848,7 +915,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Emotion overlay on image */}
                   {hasEmotion && emotions.length > 0 && (
                     <div style={{
-                      position: 'absolute', top: 12, left: 12,
+                      position: 'absolute', top: (imgSize.offsetY || 0) + 12, left: (imgSize.offsetX || 0) + 12,
                       background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
                       pointerEvents: 'none', maxWidth: '60%',
                     }}>
