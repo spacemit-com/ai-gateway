@@ -33,7 +33,7 @@ function Sidebar({ page, setPage }) {
     { id: 'manage',    label: t('语音模型管理'), icon: 'package' },
     { id: 'vision-manage', label: t('视觉模型管理'), icon: 'eye' },
     { id: 'llm-manage', label: t('LLM 管理'), icon: 'cpu' },
-    { id: 'vlm-manage', label: t('VLM 管理'), icon: 'eye' },
+    { id: 'vlm-manage', label: t('VLM 管理'), icon: 'image' },
     { id: 'lexicons',  label: t('词库管理'), icon: 'book' },
     { id: 'tasks',     label: t('异步任务'), icon: 'clock' },
     { id: 'vision-jobs', label: t('视觉任务'), icon: 'eye' },

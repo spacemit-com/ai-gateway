@@ -52,35 +52,35 @@ window.MODEL_CATALOG = {
   ],
   vlm: [
     {
-      id: 'fastvlm-mm-0.5b-q4_1', name: 'FastVLM-MM 0.5B', icon: 'eye', domain: 'vlm',
+      id: 'fastvlm-mm-0.5b-q4_1', name: 'FastVLM-MM 0.5B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'FastVLM 轻量视觉语言模型，支持图片理解与对话。',
       meta: [['类型', '视觉语言'], ['规模', '0.5B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-0.8B', name: 'Qwen3.5-0.8B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-0.8B', name: 'Qwen3.5-0.8B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 0.8B 视觉语言模型，适合嵌入式图片问答。',
       meta: [['类型', '视觉语言'], ['规模', '0.8B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-2B', name: 'Qwen3.5-2B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-2B', name: 'Qwen3.5-2B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 2B 视觉语言模型，支持图片理解与对话。',
       meta: [['类型', '视觉语言'], ['规模', '2B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'Qwen3.5-4B', name: 'Qwen3.5-4B', icon: 'eye', domain: 'vlm',
+      id: 'Qwen3.5-4B', name: 'Qwen3.5-4B', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3.5 4B 视觉语言模型，支持更强的多模态理解。',
       meta: [['类型', '视觉语言'], ['规模', '4B']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
-      id: 'qwen30ba3b-mm-q4_1', name: 'Qwen3 30B-A3B MM', icon: 'eye', domain: 'vlm',
+      id: 'qwen30ba3b-mm-q4_1', name: 'Qwen3 30B-A3B MM', icon: 'image', domain: 'vlm',
       capabilities: ['vlm'],
       desc: 'Qwen3 MoE 视觉语言模型，适合高能力图片理解场景。',
       meta: [['类型', '视觉语言'], ['规模', '30B-A3B']],
@@ -266,9 +266,19 @@ function visionCatalogMeta(id) {
   return catalog.find(m => m.id === canonical) || null;
 }
 
+const VLM_MODEL_META_ALIASES = {
+  'qwen2.5-vl-3b': {
+    id: 'qwen2.5-vl-3b', name: 'Qwen2.5-VL-3B', icon: 'image', domain: 'vlm',
+    capabilities: ['vlm'],
+    desc: 'Qwen2.5 3B 视觉语言模型，支持图像理解与对话。',
+    meta: [['参数规模', '3B'], ['格式', 'GGUF']],
+    status: 'idle', calls: 0, latencyMs: 0,
+  },
+};
+
 function vlmCatalogMeta(id) {
   const catalog = window.MODEL_CATALOG?.vlm || [];
-  return catalog.find(m => m.id === id) || null;
+  return catalog.find(m => m.id === id) || VLM_MODEL_META_ALIASES[id] || null;
 }
 
 function dedupeCatalogModels(models) {
@@ -353,6 +363,12 @@ window.initModelCatalog = async function() {
       track: '目标跟踪', vlm: '视觉语言',
     };
     const buildVisionDesc = (caps) => caps.map(c => visionDescMap[c] || c).join(' + ') || 'Vision';
+    const vlmStatusMap = {
+      loaded: 'ready', loading: 'ready', ready: 'ready',
+      downloaded: 'idle', available: 'idle', downloading: 'idle', unloaded: 'idle',
+      error: 'offline', offline: 'offline',
+    };
+    const vlmDisplayStatus = (status) => vlmStatusMap[status] || 'idle';
 
     const mappedVisionModels = visionModels.map(m => {
       const rawModelId = m.model_id || m.id;
@@ -367,7 +383,7 @@ window.initModelCatalog = async function() {
         ...(meta || {}),
         id: modelId,
         name: meta?.name || modelId,
-        icon: meta?.icon || 'eye',
+        icon: meta?.icon || (domain === 'vlm' ? 'image' : 'eye'),
         domain,
         capabilities: caps,
         desc: meta?.desc || (domain === 'vlm' ? '视觉语言模型' : buildVisionDesc(caps)),
@@ -375,30 +391,33 @@ window.initModelCatalog = async function() {
           ...(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
           ['后端', m.backend || '-'],
         ],
-        status: m.status === 'ready' ? 'ready' : 'idle', calls: 0, latencyMs: 0,
+        status: domain === 'vlm' ? vlmDisplayStatus(m.status) : (m.status === 'ready' ? 'ready' : 'idle'),
+        calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
     const visionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain !== 'vlm'));
     const vlmFromVisionList = dedupeCatalogModels(mappedVisionModels.filter(m => m.domain === 'vlm'));
 
-    const vlmStatusMap = {
-      loaded: 'ready', loading: 'ready', downloaded: 'idle',
-      available: 'idle', downloading: 'idle', error: 'offline',
-    };
-    const vlmList = vlmModels.map(m => {
+    const primaryVlmList = vlmModels.map(m => {
       const modelId = m.id || m.model || m.model_id;
       if (!modelId) return null;
       const meta = vlmCatalogMeta(modelId);
+      const displayStatus = vlmDisplayStatus(m.status);
       const source = m.source_type === 'remote'
         ? (m.api_base_url || 'Remote API')
         : (m.url || m.local_path || 'Local VLM');
       return {
         ...(meta || {}),
-        id: modelId, name: meta?.name || modelId, icon: meta?.icon || 'eye', domain: 'vlm',
+        id: modelId, name: meta?.name || modelId, icon: meta?.icon || 'image', domain: 'vlm',
+        source_type: m.source_type,
+        url: m.url,
+        local_path: m.local_path,
+        api_base_url: m.api_base_url,
+        is_preset: m.is_preset,
         capabilities: ['vlm'],
         desc: meta?.desc || ((m.source_type === 'remote' ? 'Remote · ' : 'VLM · ') + source),
-        meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', m.status || '-']],
-        status: vlmStatusMap[m.status] || 'idle', calls: 0, latencyMs: 0,
+        meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', displayStatus]],
+        status: displayStatus, calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
 
@@ -410,8 +429,9 @@ window.initModelCatalog = async function() {
       window.MODEL_CATALOG = { ...window.MODEL_CATALOG, vision: [...visionList, ...staticVision] };
     }
 
-    if (vlmList.length > 0 || vlmFromVisionList.length > 0) {
-      const liveVlm = dedupeCatalogModels([...vlmList, ...vlmFromVisionList]);
+    if (primaryVlmList.length > 0 || vlmFromVisionList.length > 0) {
+      // Prefer the dedicated VLM endpoint when both APIs report the same model.
+      const liveVlm = dedupeCatalogModels([...primaryVlmList, ...vlmFromVisionList]);
       const liveIds = new Set(liveVlm.map(m => m.domain + '-' + m.id));
       const staticVlm = (window.MODEL_CATALOG.vlm || []).filter(
         m => !liveIds.has(m.domain + '-' + m.id)
