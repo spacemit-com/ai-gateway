@@ -64,6 +64,11 @@ const _EN = {
   '语言模型': 'Language',
   '文本模型': 'Text',
   '试用模型': 'Try It',
+  '下载模型': 'Download Model',
+  '加载模型': 'Load Model',
+  '下载中…': 'Downloading…',
+  '重试下载': 'Retry Download',
+  '模型操作失败': 'Model action failed',
   '就绪': 'READY',
   '离线状态': 'OFFLINE',
 

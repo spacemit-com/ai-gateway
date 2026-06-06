@@ -391,6 +391,7 @@ window.initModelCatalog = async function() {
           ...(meta?.meta || [['类型', domain === 'vlm' ? '视觉语言' : buildVisionDesc(caps)]]),
           ['后端', m.backend || '-'],
         ],
+        rawStatus: m.status,
         status: domain === 'vlm' ? vlmDisplayStatus(m.status) : (m.status === 'ready' ? 'ready' : 'idle'),
         calls: 0, latencyMs: 0,
       };
@@ -417,6 +418,7 @@ window.initModelCatalog = async function() {
         capabilities: ['vlm'],
         desc: meta?.desc || ((m.source_type === 'remote' ? 'Remote · ' : 'VLM · ') + source),
         meta: [['类型', '视觉语言'], ['来源', m.source_type || '-'], ['状态', displayStatus]],
+        rawStatus: m.status,
         status: displayStatus, calls: 0, latencyMs: 0,
       };
     }).filter(Boolean);
@@ -454,6 +456,7 @@ window.initModelCatalog = async function() {
         ...(isTrans ? { task: 'translate' } : {}),
         desc: isTrans ? '火山翻译模型，支持中英双向翻译' : (m.source_type === 'remote' ? 'Remote · ' : 'Local · ') + (m.url || m.local_path || 'GGUF'),
         meta: [['来源', m.source_type || '-'], ['状态', m.status || '-']],
+        rawStatus: m.status,
         status: statusMap[m.status] || 'idle', calls: 0, latencyMs: 0,
       };
     });

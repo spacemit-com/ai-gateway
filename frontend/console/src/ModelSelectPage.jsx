@@ -33,6 +33,19 @@ const _MS_CAT_TEXT = {
   local: 'oklch(0.72 0.14 190)',
 };
 
+function modelActionFor(model, t) {
+  const manageable = model.domain === 'llm' || model.domain === 'vlm';
+  const rawStatus = String(model.rawStatus || '').toLowerCase();
+  if (!manageable || model.status === 'ready' || rawStatus === 'loaded' || rawStatus === 'ready') {
+    return { kind: 'try', label: t('试用模型') };
+  }
+  if (rawStatus === 'downloading') return { kind: 'none', label: t('下载中…'), disabled: true };
+  if (rawStatus === 'loading') return { kind: 'none', label: t('加载中…'), disabled: true };
+  if (rawStatus === 'downloaded' || rawStatus === 'unloaded') return { kind: 'load', label: t('加载模型') };
+  if (rawStatus === 'error') return { kind: 'download', label: t('重试下载') };
+  return { kind: 'download', label: t('下载模型') };
+}
+
 function ModelSelectPage({ setPage, initialCategory }) {
   const { Icon, t } = window;
   const [category, setCategory] = useStateM(initialCategory || 'text');
@@ -45,6 +58,12 @@ function ModelSelectPage({ setPage, initialCategory }) {
     window.addEventListener('model-catalog-updated', handler);
     return () => window.removeEventListener('model-catalog-updated', handler);
   }, []);
+
+  const refreshCatalog = async () => {
+    if (!window.initModelCatalog) return;
+    await window.initModelCatalog();
+    setCatalog({ ...window.MODEL_CATALOG });
+  };
 
   const switchCategory = (k) => { setCategory(k); setSubCat('all'); setSearch(''); };
 
@@ -120,6 +139,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
             catLabel={cat && subCatLabels ? subCatLabels[cat] : null}
             catColor={cat ? _MS_CAT_COLORS[cat] : null}
             catTextColor={cat ? _MS_CAT_TEXT[cat] : null}
+            onRefresh={refreshCatalog}
             onTry={() => setPage({ name: 'try', model: m, category })}/>;
         })}
         {models.length === 0 && (
@@ -132,9 +152,12 @@ function ModelSelectPage({ setPage, initialCategory }) {
   );
 }
 
-function ModelCard({ model, onTry, catLabel, catColor, catTextColor }) {
-  const { Icon, t } = window;
+function ModelCard({ model, onTry, onRefresh, catLabel, catColor, catTextColor }) {
+  const { Icon, llmApi, vlmApi, t } = window;
   const cardRef = useRefM(null);
+  const [actionBusy, setActionBusy] = useStateM(false);
+  const [actionError, setActionError] = useStateM('');
+  const action = modelActionFor(model, t);
 
   const onMove = (e) => {
     if (!cardRef.current) return;
@@ -142,6 +165,34 @@ function ModelCard({ model, onTry, catLabel, catColor, catTextColor }) {
     cardRef.current.style.setProperty('--mx', `${e.clientX - r.left}px`);
     cardRef.current.style.setProperty('--my', `${e.clientY - r.top}px`);
   };
+
+  const runAction = async () => {
+    if (action.disabled || actionBusy) return;
+    if (action.kind === 'try') {
+      onTry();
+      return;
+    }
+    const api = model.domain === 'vlm' ? vlmApi : model.domain === 'llm' ? llmApi : null;
+    if (!api) {
+      onTry();
+      return;
+    }
+    setActionBusy(true);
+    setActionError('');
+    try {
+      if (action.kind === 'download') await api.startDownload(model.id);
+      if (action.kind === 'load') await api.loadModel(model.id);
+      await onRefresh?.();
+    } catch (e) {
+      setActionError(e.message || t('模型操作失败'));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const actionLabel = actionBusy
+    ? (action.kind === 'load' ? t('加载中…') : t('下载中…'))
+    : action.label;
 
   return (
     <div className="model-card" ref={cardRef} onMouseMove={onMove}>
@@ -169,7 +220,10 @@ function ModelCard({ model, onTry, catLabel, catColor, catTextColor }) {
           </div>
         ))}
       </div>
-      <button className="btn-card" onClick={onTry}>{t('试用模型')}</button>
+      <button className="btn-card" disabled={actionBusy || action.disabled} onClick={runAction}>{actionLabel}</button>
+      {actionError && (
+        <div className="text-xs text-mono mt-2" style={{ color: 'var(--danger)' }}>{actionError}</div>
+      )}
     </div>
   );
 }
