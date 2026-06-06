@@ -269,6 +269,12 @@ function VisionTryPage({ model, onBack: _onBack }) {
     };
 
     const loadCurrentModel = async () => {
+      if (model.status === 'ready') {
+        await visionApi.switchModel(backendModelId).catch(() => {});
+        setLoadError('');
+        setModelReady(true);
+        return;
+      }
       setLoadError(t('模型加载中…'));
       // 先卸载其他已加载的模型，释放 AI cores
       await unloadOthers();

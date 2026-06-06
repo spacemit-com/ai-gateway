@@ -34,16 +34,46 @@ const _MS_CAT_TEXT = {
 };
 
 function modelActionFor(model, t) {
-  const manageable = model.domain === 'llm' || model.domain === 'vlm';
   const rawStatus = String(model.rawStatus || '').toLowerCase();
-  if (!manageable || model.status === 'ready' || rawStatus === 'loaded' || rawStatus === 'ready') {
-    return { kind: 'try', label: t('试用模型') };
-  }
+  const canDownload = model.domain === 'llm' || model.domain === 'vlm';
   if (rawStatus === 'downloading') return { kind: 'none', label: t('下载中…'), disabled: true };
   if (rawStatus === 'loading') return { kind: 'none', label: t('加载中…'), disabled: true };
-  if (rawStatus === 'downloaded' || rawStatus === 'unloaded') return { kind: 'load', label: t('加载模型') };
-  if (rawStatus === 'error') return { kind: 'download', label: t('重试下载') };
-  return { kind: 'download', label: t('下载模型') };
+  if (canDownload &&
+      rawStatus !== 'downloaded' && rawStatus !== 'unloaded' &&
+      rawStatus !== 'loaded' && rawStatus !== 'ready' &&
+      model.status !== 'ready' && model.source_type !== 'remote') {
+    if (rawStatus === 'error') return { kind: 'download', label: t('重试下载') };
+    return { kind: 'download', label: t('下载模型') };
+  }
+  return { kind: 'load', label: t('加载模型') };
+}
+
+function apiForModel(model) {
+  const { asrApi, ttsApi, vadApi, visionApi, llmApi, vlmApi } = window;
+  if (model.domain === 'asr') return asrApi;
+  if (model.domain === 'tts') return ttsApi;
+  if (model.domain === 'vad') return vadApi;
+  if (model.domain === 'vision' || model.domain === 'yolo') return visionApi;
+  if (model.domain === 'llm') return llmApi;
+  if (model.domain === 'vlm') return vlmApi;
+  return null;
+}
+
+async function loadModelForEntry(model) {
+  const api = apiForModel(model);
+  if (!api?.loadModel) return;
+  const rawStatus = String(model.rawStatus || '').toLowerCase();
+  const alreadyLoaded = model.status === 'ready' || rawStatus === 'loaded' || rawStatus === 'ready';
+  if (!alreadyLoaded) {
+    try {
+      await api.loadModel(model.id);
+    } catch (e) {
+      if (!/409|already/i.test(e.message || '')) throw e;
+    }
+  }
+  if (api.switchModel) {
+    await api.switchModel(model.id).catch(() => {});
+  }
 }
 
 function ModelSelectPage({ setPage, initialCategory }) {
@@ -140,7 +170,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
             catColor={cat ? _MS_CAT_COLORS[cat] : null}
             catTextColor={cat ? _MS_CAT_TEXT[cat] : null}
             onRefresh={refreshCatalog}
-            onTry={() => setPage({ name: 'try', model: m, category })}/>;
+            onEnter={(loadedModel) => setPage({ name: 'try', model: loadedModel, category })}/>;
         })}
         {models.length === 0 && (
           <div className="text-dim" style={{ textAlign: 'center', padding: 32, gridColumn: '1 / -1' }}>
@@ -152,7 +182,7 @@ function ModelSelectPage({ setPage, initialCategory }) {
   );
 }
 
-function ModelCard({ model, onTry, onRefresh, catLabel, catColor, catTextColor }) {
+function ModelCard({ model, onEnter, onRefresh, catLabel, catColor, catTextColor }) {
   const { Icon, llmApi, vlmApi, t } = window;
   const cardRef = useRefM(null);
   const [actionBusy, setActionBusy] = useStateM(false);
@@ -168,21 +198,19 @@ function ModelCard({ model, onTry, onRefresh, catLabel, catColor, catTextColor }
 
   const runAction = async () => {
     if (action.disabled || actionBusy) return;
-    if (action.kind === 'try') {
-      onTry();
-      return;
-    }
-    const api = model.domain === 'vlm' ? vlmApi : model.domain === 'llm' ? llmApi : null;
-    if (!api) {
-      onTry();
-      return;
-    }
     setActionBusy(true);
     setActionError('');
     try {
-      if (action.kind === 'download') await api.startDownload(model.id);
-      if (action.kind === 'load') await api.loadModel(model.id);
-      await onRefresh?.();
+      if (action.kind === 'download') {
+        const api = model.domain === 'vlm' ? vlmApi : llmApi;
+        await api.startDownload(model.id);
+        await onRefresh?.().catch(() => {});
+        return;
+      }
+      await loadModelForEntry(model);
+      const loadedModel = { ...model, status: 'ready', rawStatus: 'loaded' };
+      await onRefresh?.().catch(() => {});
+      onEnter(loadedModel);
     } catch (e) {
       setActionError(e.message || t('模型操作失败'));
     } finally {
@@ -191,7 +219,7 @@ function ModelCard({ model, onTry, onRefresh, catLabel, catColor, catTextColor }
   };
 
   const actionLabel = actionBusy
-    ? (action.kind === 'load' ? t('加载中…') : t('下载中…'))
+    ? (action.kind === 'download' ? t('下载中…') : t('加载中…'))
     : action.label;
 
   return (
