@@ -60,9 +60,15 @@ const _EN = {
   // Model select
   '语音模型': 'Voice',
   '视觉模型': 'Vision',
+  'VLM 模型': 'VLM',
   '语言模型': 'Language',
   '文本模型': 'Text',
   '试用模型': 'Try It',
+  '下载模型': 'Download Model',
+  '加载模型': 'Load Model',
+  '下载中…': 'Downloading…',
+  '重试下载': 'Retry Download',
+  '模型操作失败': 'Model action failed',
   '就绪': 'READY',
   '离线状态': 'OFFLINE',
 
@@ -184,11 +190,15 @@ const _EN = {
   '清空对话': 'Clear Chat',
   '模型不可用': 'Model Unavailable',
   '请前往 LLM 模型管理页面下载并加载该模型': 'Please go to LLM Model Manager to download and load this model.',
+  '请前往 VLM 模型管理页面下载并加载该模型': 'Please go to VLM Model Manager to download and load this model.',
   '请求失败': 'Request Failed',
   '性能指标': 'Performance',
   '生成速度': 'Generation Speed',
   'Prompt 处理': 'Prompt Processing',
   '清除会话缓存': 'Clear Cache',
+  '请描述这张图片': 'Please describe this image',
+  '开始和 {model} 对话…': 'Start chatting with {model}…',
+  '支持上传图片进行多模态理解': 'Upload an image for multimodal understanding',
 
   // Config
   '系统配置': 'Settings',
@@ -261,6 +271,8 @@ const _EN = {
   // LLM Management
   'LLM 管理': 'LLM Manager',
   'LLM 模型管理': 'LLM Model Manager',
+  'VLM 管理': 'VLM Manager',
+  'VLM 模型管理': 'VLM Model Manager',
   '注册模型': 'Register Model',
   '来源': 'Source',
   '来源类型': 'Source Type',
@@ -278,6 +290,7 @@ const _EN = {
   '远程API': 'Remote API',
   '下载URL': 'Download URL',
   '本地路径': 'Local Path',
+  '本地模型': 'Local Model',
   '预设': 'PRESET',
   '当前模型': 'Current Model',
   '无模型运行': 'No model running',
@@ -316,6 +329,7 @@ const _EN = {
   // Service Info
   '视觉模型管理': 'Vision Model Manager',
   '能力': 'Capabilities',
+  '视觉语言': 'Vision Language',
 
   '服务信息': 'Service Info',
   '已初始化': 'Initialized',

@@ -196,7 +196,7 @@ function TTSTryPage({ model, onBack }) {
   };
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="back-link" onClick={onBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>

@@ -104,7 +104,7 @@ function YoloTryPage({ model, onBack }) {
   const colors = ['#b9f332', '#32d3f3', '#f3a732', '#f332a7', '#a732f3'];
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="back-link" onClick={onBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>

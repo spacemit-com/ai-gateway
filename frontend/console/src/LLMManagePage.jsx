@@ -11,20 +11,35 @@ function _inferCat(id) {
   for (const [re, cat] of _CAT_RULES) if (re.test(id)) return cat;
   return 'chat';
 }
+function _inferVlmCat(m) {
+  const id = (typeof m === 'string' ? m : m.id || '').toLowerCase();
+  if (m.source_type === 'remote') return 'remote';
+  if (/fastvlm/.test(id)) return 'fastvlm';
+  if (/qwen/.test(id)) return 'qwen';
+  return 'local';
+}
 const _STATUS_ORDER = { loaded: 0, loading: 1, downloading: 2, downloaded: 3, error: 4, available: 5 };
 const _CAT_COLORS = {
   chat: 'oklch(0.82 0.18 135 / .14)', translate: 'oklch(0.72 0.14 230 / .18)',
   reasoning: 'oklch(0.72 0.14 300 / .18)', embedding: 'oklch(0.72 0.14 190 / .18)',
-  code: 'oklch(0.78 0.14 80 / .18)',
+  code: 'oklch(0.78 0.14 80 / .18)', qwen: 'oklch(0.72 0.14 230 / .18)',
+  fastvlm: 'oklch(0.78 0.14 80 / .18)', remote: 'oklch(0.72 0.14 300 / .18)',
+  local: 'oklch(0.72 0.14 190 / .18)',
 };
 const _CAT_TEXT = {
   chat: 'var(--accent)', translate: 'oklch(0.72 0.14 230)',
   reasoning: 'oklch(0.72 0.14 300)', embedding: 'oklch(0.72 0.14 190)',
-  code: 'oklch(0.78 0.14 80)',
+  code: 'oklch(0.78 0.14 80)', qwen: 'oklch(0.72 0.14 230)',
+  fastvlm: 'oklch(0.78 0.14 80)', remote: 'oklch(0.72 0.14 300)',
+  local: 'oklch(0.72 0.14 190)',
 };
 
-function LLMManagePage() {
-  const { Icon, llmApi, t } = window;
+function TextModelManagePage({ kind = 'llm' }) {
+  const { Icon, llmApi, vlmApi, t } = window;
+  const isVLM = kind === 'vlm';
+  const api = isVLM ? vlmApi : llmApi;
+  const title = isVLM ? t('VLM 模型管理') : t('LLM 模型管理');
+  const logTag = isVLM ? 'vlm-manage' : 'llm-manage';
   const [models, setModels] = useStateLM([]);
   const [search, setSearch] = useStateLM('');
   const [filterCat, setFilterCat] = useStateLM('all');
@@ -42,13 +57,13 @@ function LLMManagePage() {
   const refresh = async () => {
     try {
       const [list, h] = await Promise.all([
-        llmApi.listModels().catch(() => []),
-        llmApi.health().catch(() => ({ status: 'unknown', model: '' })),
+        api.listModels().catch(() => []),
+        api.health().catch(() => ({ status: 'unknown', model: '' })),
       ]);
       setModels(Array.isArray(list) ? list : []);
       setHealthInfo(h || { status: 'unknown', model: '' });
     } catch (e) {
-      console.warn('[llm-manage] refresh failed:', e);
+      console.warn(`[${logTag}] refresh failed:`, e);
     }
   };
 
@@ -66,7 +81,7 @@ function LLMManagePage() {
       let changed = false;
       for (const m of downloading) {
         try {
-          const prog = await llmApi.getDownload(m.id);
+          const prog = await api.getDownload(m.id);
           if (prog && typeof prog.progress === 'number') {
             m.download_progress = prog.progress;
             changed = true;
@@ -86,7 +101,7 @@ function LLMManagePage() {
   const handleDownload = async (m) => {
     setLoading(true);
     try {
-      await llmApi.startDownload(m.id);
+      await api.startDownload(m.id);
       showFlash(m.id + ' downloading...');
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
@@ -96,7 +111,7 @@ function LLMManagePage() {
   const handleCancelDownload = async (m) => {
     setLoading(true);
     try {
-      await llmApi.cancelDownload(m.id);
+      await api.cancelDownload(m.id);
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
     setLoading(false);
@@ -105,7 +120,7 @@ function LLMManagePage() {
   const handleLoad = async (m) => {
     setLoading(true);
     try {
-      await llmApi.loadModel(m.id);
+      await api.loadModel(m.id);
       showFlash(m.id + ' loaded');
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
@@ -115,7 +130,7 @@ function LLMManagePage() {
   const handleUnload = async (m) => {
     setLoading(true);
     try {
-      await llmApi.unloadModel(m.id);
+      await api.unloadModel(m.id);
       showFlash(m.id + ' unloaded');
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
@@ -125,7 +140,7 @@ function LLMManagePage() {
   const handleSwitch = async (m) => {
     setLoading(true);
     try {
-      await llmApi.switchModel(m.id);
+      await api.switchModel(m.id);
       showFlash(m.id + ' set as default');
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
@@ -136,7 +151,7 @@ function LLMManagePage() {
     if (!confirm(t('确认注销') + ': ' + m.id + '?')) return;
     setLoading(true);
     try {
-      await llmApi.deregisterModel(m.id);
+      await api.deregisterModel(m.id);
       showFlash(m.id + ' deregistered');
       await refresh();
     } catch (e) { showFlash(e.message, 'err'); }
@@ -159,13 +174,13 @@ function LLMManagePage() {
   };
 
   const currentModel = healthInfo.model || '';
-  const isRunning = healthInfo.status === 'ok';
+  const isRunning = !!currentModel && ['ok', 'ready', 'idle'].includes(healthInfo.status);
 
   return (
     <div className="main-inner">
       <div className="page-header">
         <div>
-          <div className="page-title">{t('LLM 模型管理')}</div>
+          <div className="page-title">{title}</div>
           <div className="page-sub">
             {models.length} {t('模型')} ·{' '}
             {isRunning
@@ -193,21 +208,28 @@ function LLMManagePage() {
 
       {showRegister && (
         <RegisterModelDialog
+          api={api}
+          kind={kind}
           onDone={() => { setShowRegister(false); refresh(); }}
           onCancel={() => setShowRegister(false)}
         />
       )}
 
       {(() => {
-        const cats = ['all', 'chat', 'translate', 'reasoning', 'embedding', 'code'];
-        const catLabels = { all: t('全部'), chat: t('对话'), translate: t('翻译'), reasoning: t('推理'), embedding: t('嵌入'), code: t('代码') };
+        const cats = isVLM
+          ? ['all', 'qwen', 'fastvlm', 'remote', 'local']
+          : ['all', 'chat', 'translate', 'reasoning', 'embedding', 'code'];
+        const catLabels = isVLM
+          ? { all: t('全部'), qwen: 'Qwen', fastvlm: 'FastVLM', remote: t('远程API'), local: t('本地模型') }
+          : { all: t('全部'), chat: t('对话'), translate: t('翻译'), reasoning: t('推理'), embedding: t('嵌入'), code: t('代码') };
+        const inferCat = (m) => isVLM ? _inferVlmCat(m) : _inferCat(m.id);
         const catCounts = {};
-        models.forEach(m => { const c = _inferCat(m.id); catCounts[c] = (catCounts[c] || 0) + 1; });
+        models.forEach(m => { const c = inferCat(m); catCounts[c] = (catCounts[c] || 0) + 1; });
         catCounts.all = models.length;
 
         const filtered = models
           .filter(m => !search || m.id.toLowerCase().includes(search.toLowerCase()))
-          .filter(m => filterCat === 'all' || _inferCat(m.id) === filterCat)
+          .filter(m => filterCat === 'all' || inferCat(m) === filterCat)
           .sort((a, b) => (_STATUS_ORDER[a.status] ?? 9) - (_STATUS_ORDER[b.status] ?? 9));
 
         return <>
@@ -239,7 +261,7 @@ function LLMManagePage() {
               </thead>
               <tbody>
                 {filtered.map(m => {
-                  const cat = _inferCat(m.id);
+                  const cat = inferCat(m);
                   return (
                     <tr key={m.id}>
                       <td>
@@ -314,7 +336,7 @@ function LLMManagePage() {
                         </div>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <span className="chip" style={{ background: _CAT_COLORS[cat], color: _CAT_TEXT[cat], fontSize: 10 }}>
+                        <span className="chip" style={{ background: _CAT_COLORS[cat] || _CAT_COLORS.chat, color: _CAT_TEXT[cat] || _CAT_TEXT.chat, fontSize: 10 }}>
                           {catLabels[cat]}
                         </span>
                       </td>
@@ -335,8 +357,9 @@ function LLMManagePage() {
   );
 }
 
-function RegisterModelDialog({ onDone, onCancel }) {
-  const { t, llmApi } = window;
+function RegisterModelDialog({ api, kind = 'llm', onDone, onCancel }) {
+  const { t } = window;
+  const isVLM = kind === 'vlm';
   const [sourceType, setSourceType] = useStateLM('local_url');
   const [modelId, setModelId] = useStateLM('');
   const [url, setUrl] = useStateLM('');
@@ -363,7 +386,7 @@ function RegisterModelDialog({ onDone, onCancel }) {
     }
     setSubmitting(true);
     try {
-      await llmApi.registerModel(body);
+      await api.registerModel(body);
       onDone();
     } catch (e) {
       setError(e.message);
@@ -411,14 +434,14 @@ function RegisterModelDialog({ onDone, onCancel }) {
         {sourceType === 'local_url' && (
           <div>
             <label className="text-xs text-dim" style={{ display: 'block', marginBottom: 4 }}>{t('下载URL')}</label>
-            <input className="input" placeholder="https://example.com/model.gguf" value={url}
+            <input className="input" placeholder={isVLM ? 'https://example.com/model.tar.gz' : 'https://example.com/model.gguf'} value={url}
               onChange={e => setUrl(e.target.value)} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}/>
           </div>
         )}
         {sourceType === 'local_path' && (
           <div>
             <label className="text-xs text-dim" style={{ display: 'block', marginBottom: 4 }}>{t('本地路径')}</label>
-            <input className="input" placeholder="/path/to/model.gguf" value={localPath}
+            <input className="input" placeholder={isVLM ? '/root/.cache/models/vlm/Qwen3.5-0.8B' : '/path/to/model.gguf'} value={localPath}
               onChange={e => setLocalPath(e.target.value)} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}/>
           </div>
         )}
@@ -436,4 +459,9 @@ function RegisterModelDialog({ onDone, onCancel }) {
   );
 }
 
+function LLMManagePage() {
+  return <TextModelManagePage kind="llm"/>;
+}
+
+window.TextModelManagePage = TextModelManagePage;
 window.LLMManagePage = LLMManagePage;

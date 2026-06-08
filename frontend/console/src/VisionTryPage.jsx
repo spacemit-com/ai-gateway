@@ -32,6 +32,201 @@ const CAP_LABEL = {
   track:'目标跟踪',
 };
 
+function detectionList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value.items)) return value.items;
+  if (Array.isArray(value.results)) return value.results;
+  if (Array.isArray(value.data)) return value.data;
+  if (Array.isArray(value.detections)) return value.detections;
+  if (Array.isArray(value.boxes)) return value.boxes;
+  return [];
+}
+
+function pickDetections(results) {
+  const candidates = [
+    results,
+    results?.detect,
+    results?.detections,
+    results?.det,
+    results?.boxes,
+    results?.objects,
+    results?.results?.detect,
+    results?.results?.detections,
+    results?.data?.results?.detect,
+    results?.data?.results?.detections,
+  ];
+  for (const candidate of candidates) {
+    const list = detectionList(candidate);
+    if (list.length > 0) return list;
+  }
+  return [];
+}
+
+function toFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function readBoxObject(box, normalized) {
+  if (!box || typeof box !== 'object') return { bbox: [], normalized };
+  const x1 = box.x1 ?? box.left ?? box.xmin ?? box.x;
+  const y1 = box.y1 ?? box.top ?? box.ymin ?? box.y;
+  let x2 = box.x2 ?? box.right ?? box.xmax;
+  let y2 = box.y2 ?? box.bottom ?? box.ymax;
+  const w = box.w ?? box.width;
+  const h = box.h ?? box.height;
+  if ((x2 == null || y2 == null) && w != null && h != null && x1 != null && y1 != null) {
+    x2 = Number(x1) + Number(w);
+    y2 = Number(y1) + Number(h);
+  }
+  return { bbox: [x1, y1, x2, y2], normalized };
+}
+
+function xywhToBBox(values, normalized) {
+  if (!Array.isArray(values) || values.length < 4) return { bbox: [], normalized };
+  const [x, y, w, h] = values.slice(0, 4).map(toFiniteNumber);
+  if ([x, y, w, h].some(v => v == null)) return { bbox: [], normalized };
+  return { bbox: [x, y, x + w, y + h], normalized };
+}
+
+function readXYWHObject(box, normalized) {
+  if (!box || typeof box !== 'object') return { bbox: [], normalized };
+  const x = toFiniteNumber(box.x ?? box.x1 ?? box.left ?? box.xmin);
+  const y = toFiniteNumber(box.y ?? box.y1 ?? box.top ?? box.ymin);
+  const w = toFiniteNumber(box.w ?? box.width);
+  const h = toFiniteNumber(box.h ?? box.height);
+  if ([x, y, w, h].some(v => v == null)) return { bbox: [], normalized };
+  return { bbox: [x, y, x + w, y + h], normalized };
+}
+
+function hasNormalizedBoxFormat(format) {
+  const text = String(format || '').toLowerCase();
+  return text.includes('norm') || text.includes('relative') || text.includes('ratio') ||
+    text.includes('xyxyn') || text.includes('xywhn');
+}
+
+function hasExplicitNormalizedBox(item, raw) {
+  const d = item || {};
+  return d.normalized === true || d.is_normalized === true || d.relative === true ||
+    raw?.normalized === true || raw?.is_normalized === true || raw?.relative === true ||
+    d.xyxyn != null || d.xywhn != null || d.bbox_xyxyn != null || d.bbox_xywhn != null ||
+    hasNormalizedBoxFormat(d.bbox_format ?? d.box_format ?? d.format ?? raw?.bbox_format ?? raw?.box_format ?? raw?.format);
+}
+
+function normalizeBBox(item) {
+  const d = item || {};
+  const xywh = d.xywh ?? d.bbox_xywh ?? d.xywhn ?? d.bbox_xywhn;
+  const xywhNormalized = hasExplicitNormalizedBox(d, xywh);
+  if (Array.isArray(xywh)) {
+    return xywhToBBox(xywh, xywhNormalized);
+  }
+  if (xywh && typeof xywh === 'object') {
+    return readXYWHObject(xywh, xywhNormalized);
+  }
+
+  let raw = Array.isArray(d) ? d : (d.bbox ?? d.box ?? d.xyxy ?? d.xyxyn ?? d.bbox_xyxyn ?? d.rect ?? d.bounds);
+  const normalized = hasExplicitNormalizedBox(d, raw);
+  const boxFormat = String(d.bbox_format ?? d.box_format ?? d.format ?? raw?.bbox_format ?? raw?.box_format ?? raw?.format ?? '').toLowerCase();
+  if (boxFormat.includes('xywh') && raw != null) {
+    if (Array.isArray(raw)) return xywhToBBox(raw, normalized);
+    if (typeof raw === 'object') return readXYWHObject(raw, normalized);
+  }
+
+  let box = [];
+  if (Array.isArray(raw)) {
+    box = raw.slice(0, 4);
+  } else if (raw && typeof raw === 'object') {
+    box = readBoxObject(raw, normalized).bbox;
+  } else {
+    box = [
+      d.x1 ?? d.left ?? d.xmin ?? d.x,
+      d.y1 ?? d.top ?? d.ymin ?? d.y,
+      d.x2 ?? d.right ?? d.xmax,
+      d.y2 ?? d.bottom ?? d.ymax,
+    ];
+  }
+
+  let [x1, y1, x2, y2] = box.map(toFiniteNumber);
+  const w = toFiniteNumber(d.w ?? d.width ?? raw?.w ?? raw?.width);
+  const h = toFiniteNumber(d.h ?? d.height ?? raw?.h ?? raw?.height);
+  if ((x2 == null || y2 == null) && x1 != null && y1 != null && w != null && h != null) {
+    x2 = x1 + w;
+    y2 = y1 + h;
+  } else if (x1 != null && y1 != null && x2 != null && y2 != null && (x2 < x1 || y2 < y1)) {
+    return { bbox: [], normalized };
+  }
+
+  return { bbox: [x1, y1, x2, y2], normalized };
+}
+
+function normalizeDetection(item) {
+  const d = item || {};
+  const { bbox, normalized } = normalizeBBox(d);
+  if (bbox.length !== 4 || bbox.some(v => !Number.isFinite(v))) return null;
+
+  const rawScore = Array.isArray(d)
+    ? toFiniteNumber(d[4])
+    : toFiniteNumber(d.score ?? d.confidence ?? d.conf ?? d.prob);
+  const score = rawScore == null ? 1 : (rawScore > 1 && rawScore <= 100 ? rawScore / 100 : rawScore);
+  const label = Array.isArray(d)
+    ? (d[5] ?? 'object')
+    : (d.label_name ?? d.class_name ?? d.name ?? d.label ?? d.class_id ?? d.class_idx ?? 'object');
+  const rawTrackId = d.track_id ?? d.trackId ?? d.id ?? -1;
+  const trackId = Number(rawTrackId);
+
+  return {
+    label: String(label),
+    score,
+    bbox,
+    bboxNormalized: normalized,
+    x1: bbox[0],
+    y1: bbox[1],
+    x2: bbox[2],
+    y2: bbox[3],
+    track_id: Number.isFinite(trackId) ? trackId : -1,
+  };
+}
+
+function renderBoxForSize(detection, sourceSize, renderedSize) {
+  const bbox = detection?.bbox || [];
+  const [x1, y1, x2, y2] = bbox.map(Number);
+  if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+  if (!renderedSize?.w || !renderedSize?.h) return null;
+  const ox = renderedSize.offsetX || 0;
+  const oy = renderedSize.offsetY || 0;
+  if (detection.bboxNormalized) {
+    return [
+      ox + x1 * renderedSize.w,
+      oy + y1 * renderedSize.h,
+      ox + x2 * renderedSize.w,
+      oy + y2 * renderedSize.h,
+    ];
+  }
+  if (!sourceSize?.w || !sourceSize?.h) return null;
+  const sx = renderedSize.w / sourceSize.w;
+  const sy = renderedSize.h / sourceSize.h;
+  return [ox + x1 * sx, oy + y1 * sy, ox + x2 * sx, oy + y2 * sy];
+}
+
+function containRenderedSize(sourceW, sourceH, boxW, boxH) {
+  if (!sourceW || !sourceH || !boxW || !boxH) return null;
+  const scale = Math.min(boxW / sourceW, boxH / sourceH);
+  const w = sourceW * scale;
+  const h = sourceH * scale;
+  return {
+    w,
+    h,
+    offsetX: (boxW - w) / 2,
+    offsetY: (boxH - h) / 2,
+  };
+}
+
+function videoRenderedSize(video) {
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+  return containRenderedSize(video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
+}
+
 function VisionTryPage({ model, onBack: _onBack }) {
   const { Icon, visionApi, t } = window;
   const caps = model.capabilities || [];
@@ -48,7 +243,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const [imgFile, setImgFile] = useStateV(null);
   const [imgUrlB, setImgUrlB] = useStateV(null);
   const [imgFileB, setImgFileB] = useStateV(null);
-  const [imgSize, setImgSize] = useStateV({ w: 1, h: 1, renderedW: 1, renderedH: 1 });
+  const [imgSize, setImgSize] = useStateV({ w: 0, h: 0, renderedW: 0, renderedH: 0 });
   const [loading, setLoading] = useStateV(false);
   const [error, setError] = useStateV('');
   const [loadError, setLoadError] = useStateV('');
@@ -59,6 +254,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const [similarity, setSimilarity] = useStateV(null);
   const [timing, setTiming] = useStateV(null);
   const imgRef = useRefV(null);
+  const imageInputRef = useRefV(null);
 
   // Camera mode state
   const [mode, setMode] = useStateV('image');
@@ -99,6 +295,12 @@ function VisionTryPage({ model, onBack: _onBack }) {
     };
 
     const loadCurrentModel = async () => {
+      if (model.status === 'ready') {
+        await visionApi.switchModel(backendModelId).catch(() => {});
+        setLoadError('');
+        setModelReady(true);
+        return;
+      }
       setLoadError(t('模型加载中…'));
       // 先卸载其他已加载的模型，释放 AI cores
       await unloadOthers();
@@ -203,7 +405,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
           if (msg.event === 'ready') {
             startSendLoop(ws, video);
           } else if (msg.event === 'frame_result') {
-            setStreamDetections(msg.detections || []);
+            setStreamDetections(detectionList(msg.detections).map(normalizeDetection).filter(Boolean));
             setStreamPose(msg.pose || null);
             setStreamEmotion(msg.emotion || null);
             setStreamClassify(msg.classify || null);
@@ -262,7 +464,10 @@ function VisionTryPage({ model, onBack: _onBack }) {
   const onFile = (e) => {
     const f = e.target.files[0]; if (!f) return;
     setImgFile(f); setImgUrl(URL.createObjectURL(f));
+    setImgSize({ w: 0, h: 0, renderedW: 0, renderedH: 0 });
     setResults(null); setSimilarity(null); setTiming(null); setError('');
+    if (!isArcface) runInference(f);
+    e.target.value = '';
   };
   const onFileB = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -270,32 +475,64 @@ function VisionTryPage({ model, onBack: _onBack }) {
     setSimilarity(null); setTiming(null); setError('');
   };
   const onImgLoad = (e) => {
-    const el = e.target;
-    setImgSize({ w: el.naturalWidth, h: el.naturalHeight, renderedW: el.clientWidth, renderedH: el.clientHeight });
+    updateImageMetrics(e.target);
   };
 
-  const runInference = async () => {
-    if (!imgFile) return;
+  const updateImageMetrics = (el = imgRef.current) => {
+    if (!el) return;
+    const wrap = el.parentElement;
+    const imgRect = el.getBoundingClientRect();
+    const wrapRect = wrap?.getBoundingClientRect();
+    setImgSize({
+      w: el.naturalWidth,
+      h: el.naturalHeight,
+      renderedW: imgRect.width,
+      renderedH: imgRect.height,
+      offsetX: wrapRect ? imgRect.left - wrapRect.left : 0,
+      offsetY: wrapRect ? imgRect.top - wrapRect.top : 0,
+    });
+  };
+
+  useEffectV(() => {
+    if (!imgUrl || !imgRef.current) return undefined;
+    updateImageMetrics();
+    if (!window.ResizeObserver) {
+      const onResize = () => updateImageMetrics();
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    }
+    const observer = new ResizeObserver(() => updateImageMetrics());
+    observer.observe(imgRef.current);
+    if (imgRef.current.parentElement) observer.observe(imgRef.current.parentElement);
+    return () => observer.disconnect();
+  }, [imgUrl]);
+
+  const runInference = async (file = imgFile) => {
+    if (!file) return;
+    if (!modelReady) {
+      setError(loadError || t('模型加载中…'));
+      return;
+    }
     setLoading(true); setError('');
     const _t0 = Date.now();
     try {
       if (isArcface) {
         if (imgFileB) {
-          const res = await visionApi.feature(imgFile, 'similarity', model.id, imgFileB);
+          const res = await visionApi.feature(file, 'similarity', model.id, imgFileB);
           setSimilarity(res.similarity);
           setTiming(res.timing || null);
           window.historyStore?.push({
             model: model.id, type: 'Vision',
-            input: imgFile.name || 'image',
+            input: file.name || 'image',
             output: t('相似度') + ': ' + (res.similarity * 100).toFixed(1) + '%',
             latency: Date.now() - _t0,
           });
         } else {
-          const res = await visionApi.feature(imgFile, 'embedding', model.id);
+          const res = await visionApi.feature(file, 'embedding', model.id);
           setTiming(res.timing || null);
           window.historyStore?.push({
             model: model.id, type: 'Vision',
-            input: imgFile.name || 'image',
+            input: file.name || 'image',
             output: t('特征提取'),
             latency: Date.now() - _t0,
           });
@@ -307,13 +544,14 @@ function VisionTryPage({ model, onBack: _onBack }) {
           opts.conf = threshold;
           opts.iou = iou;
         }
-        const res = await visionApi.inference(imgFile, tasks, model.id, opts);
-        setResults(res.results || res);
+        const res = await visionApi.inference(file, tasks, model.id, opts);
+        const resultPayload = res.results || res;
+        setResults(resultPayload);
         setTiming(res.timing || null);
-        const dets = res.results?.detect || res.detect || [];
+        const dets = pickDetections(resultPayload).map(normalizeDetection).filter(Boolean);
         window.historyStore?.push({
           model: model.id, type: 'Vision',
-          input: imgFile.name || 'image',
+          input: file.name || 'image',
           output: dets.length + ' ' + t('个目标') + ' · ' + tasks.join('+'),
           latency: Date.now() - _t0,
         });
@@ -324,31 +562,27 @@ function VisionTryPage({ model, onBack: _onBack }) {
     setLoading(false);
   };
 
-  const detections = (results?.detect || []).map(d => ({
-    label: d.label_name || d.label != null ? (d.label_name || String(d.label)) : 'object',
-    score: d.score, bbox: d.bbox || [d.x1, d.y1, d.x2, d.y2],
-    track_id: d.track_id,
-  }));
+  const detections = pickDetections(results).map(normalizeDetection).filter(Boolean);
   const poses = results?.pose || [];
   const segments = results?.segment || [];
   const classifications = results?.classify || [];
   const emotions = results?.emotion || [];
+  const imageScaleReady = imgSize.w > 0 && imgSize.h > 0 && imgSize.renderedW > 0 && imgSize.renderedH > 0;
 
   const btnLabel = isArcface
     ? (loading ? t('推理中…') : !modelReady ? t('模型加载中…') : t('计算相似度'))
     : (loading ? t('推理中…') : !modelReady ? t('模型加载中…') : t('开始推理'));
 
   const renderImageUpload = () => (
-    <label style={{ textAlign: 'center', cursor: 'pointer', color: 'var(--text-dim)' }}>
-      <input type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }}/>
+    <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
       <div style={{ fontSize: 48, color: 'var(--text-low)' }}>{Icon.upload({ size: 48, strokeWidth: 1 })}</div>
-      <div style={{ marginTop: 12, fontSize: 13 }}>{t('点击上传图片或拖拽至此')}</div>
+      <div style={{ marginTop: 12, fontSize: 13 }}>{t('点击上传图片')}</div>
       <div className="text-xs text-mono mt-2" style={{ color: 'var(--text-low)' }}>JPG / PNG / WebP</div>
-    </label>
+    </div>
   );
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page vision-try-page">
       <div className="back-link" onClick={handleBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>
@@ -382,18 +616,23 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && (hasDetect || hasTrack) && streamDetections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
+                  const box = renderBoxForSize(
+                    d,
+                    { w: video.videoWidth, h: video.videoHeight },
+                    videoRenderedSize(video),
+                  );
+                  if (!box) return null;
+                  const [x1, y1, x2, y2] = box;
                   const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
                   const c = DET_COLORS[ci % DET_COLORS.length];
-                  const labelText = d.label_name || d.label;
+                  const labelText = d.label || 'object';
                   const lbl = hasTrack && d.track_id >= 0
                     ? `#${d.track_id} ${labelText} ${((d.score ?? 1) * 100).toFixed(0)}%`
                     : `${labelText} ${((d.score ?? 1) * 100).toFixed(0)}%`;
                   return (
                     <div key={'det-'+i} style={{
-                      position: 'absolute', left: d.x1 * sx, top: d.y1 * sy,
-                      width: (d.x2 - d.x1) * sx, height: (d.y2 - d.y1) * sy,
+                      position: 'absolute', left: x1, top: y1,
+                      width: x2 - x1, height: y2 - y1,
                       border: `2px solid ${c}`, boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
                       pointerEvents: 'none',
                     }}>
@@ -410,10 +649,19 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && hasPose && streamPose && (() => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
+                  const display = videoRenderedSize(video);
+                  if (!display) return null;
+                  const sx = display.w / video.videoWidth;
+                  const sy = display.h / video.videoHeight;
                   return (
-                    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                    <svg style={{
+                      position: 'absolute',
+                      left: display.offsetX,
+                      top: display.offsetY,
+                      width: display.w,
+                      height: display.h,
+                      pointerEvents: 'none',
+                    }}>
                       {streamPose.map((p, pi) => {
                         const kps = p.keypoints || [];
                         return (
@@ -438,12 +686,15 @@ function VisionTryPage({ model, onBack: _onBack }) {
                 {camActive && hasEmotion && streamEmotion && (() => {
                   const video = videoRef.current;
                   if (!video || !video.videoWidth) return null;
-                  const sx = video.clientWidth / video.videoWidth;
-                  const sy = video.clientHeight / video.videoHeight;
                   return streamEmotion.map((em, ei) => {
                     const det = streamDetections[ei];
-                    const x = det ? det.x1 * sx : 10;
-                    const y = det ? det.y2 * sy + 4 : 30 + ei * 28;
+                    const box = det ? renderBoxForSize(
+                      det,
+                      { w: video.videoWidth, h: video.videoHeight },
+                      videoRenderedSize(video),
+                    ) : null;
+                    const x = box ? box[0] : 10;
+                    const y = box ? box[3] + 4 : 30 + ei * 28;
                     const c = EMOTION_COLORS[em.label] || '#8a8e95';
                     return (
                       <div key={'emo-'+ei} style={{
@@ -542,22 +793,55 @@ function VisionTryPage({ model, onBack: _onBack }) {
               </div>
             </div>
           ) : (
-            <div style={{
-              background: 'var(--bg-1)', border: '1px dashed var(--border-2)',
-              borderRadius: 10, padding: 16, minHeight: 420,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              position: 'relative', overflow: 'hidden',
-            }}>
+            <div
+              className="vision-media-stage"
+              role="button"
+              tabIndex={0}
+              onClick={() => { if (!loading) imageInputRef.current?.click(); }}
+              onKeyDown={e => {
+                if (!loading && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  imageInputRef.current?.click();
+                }
+              }}
+              style={{ cursor: loading ? 'progress' : 'pointer' }}
+            >
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                onClick={e => e.stopPropagation()}
+                onChange={onFile}
+                style={{ display: 'none' }}
+              />
+              {loading && (
+                <div style={{
+                  position: 'absolute', top: 12, right: 12, zIndex: 3,
+                  background: 'rgba(0,0,0,0.72)', border: '1px solid var(--border)',
+                  borderRadius: 6, padding: '5px 10px',
+                  color: 'var(--accent)', fontSize: 12, fontFamily: 'var(--font-mono)',
+                  pointerEvents: 'none',
+                }}>{t('推理中…')}</div>
+              )}
               {!imgUrl ? renderImageUpload() : (
-                <div style={{ position: 'relative', display: 'inline-block' }}>
+                <div className="vision-media-wrap">
                   <img ref={imgRef} src={imgUrl} onLoad={onImgLoad}
-                    style={{ maxWidth: '100%', maxHeight: 560, display: 'block', borderRadius: 6 }}/>
+                    style={{ display: 'block', borderRadius: 6 }}/>
 
                   {/* Detection overlay */}
-                  {hasDetect && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
-                    const [x1, y1, x2, y2] = d.bbox;
-                    const sx = imgSize.renderedW / imgSize.w;
-                    const sy = imgSize.renderedH / imgSize.h;
+                  {hasDetect && imageScaleReady && detections.filter(d => (d.score ?? 1) >= threshold).map((d, i) => {
+                    const box = renderBoxForSize(
+                      d,
+                      { w: imgSize.w, h: imgSize.h },
+                      {
+                        w: imgSize.renderedW,
+                        h: imgSize.renderedH,
+                        offsetX: imgSize.offsetX || 0,
+                        offsetY: imgSize.offsetY || 0,
+                      },
+                    );
+                    if (!box) return null;
+                    const [x1, y1, x2, y2] = box;
                     const ci = hasTrack && d.track_id >= 0 ? d.track_id : i;
                     const c = DET_COLORS[ci % DET_COLORS.length];
                     const lbl = hasTrack && d.track_id >= 0
@@ -565,8 +849,8 @@ function VisionTryPage({ model, onBack: _onBack }) {
                       : `${d.label} ${((d.score ?? 1) * 100).toFixed(0)}%`;
                     return (
                       <div key={i} style={{
-                        position: 'absolute', left: x1 * sx, top: y1 * sy,
-                        width: (x2 - x1) * sx, height: (y2 - y1) * sy,
+                        position: 'absolute', left: x1, top: y1,
+                        width: x2 - x1, height: y2 - y1,
                         border: `2px solid ${c}`, boxShadow: '0 0 0 1px rgba(0,0,0,0.3)',
                         pointerEvents: 'none',
                       }}>
@@ -581,9 +865,9 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   })}
 
                   {/* Pose overlay */}
-                  {hasPose && poses.length > 0 && (
+                  {hasPose && imageScaleReady && poses.length > 0 && (
                     <svg style={{
-                      position: 'absolute', top: 0, left: 0,
+                      position: 'absolute', top: imgSize.offsetY || 0, left: imgSize.offsetX || 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
                       pointerEvents: 'none',
                     }}>
@@ -614,9 +898,9 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   )}
 
                   {/* Segment overlay */}
-                  {hasSegment && segments.length > 0 && (
+                  {hasSegment && imageScaleReady && segments.length > 0 && (
                     <svg style={{
-                      position: 'absolute', top: 0, left: 0,
+                      position: 'absolute', top: imgSize.offsetY || 0, left: imgSize.offsetX || 0,
                       width: imgSize.renderedW, height: imgSize.renderedH,
                       pointerEvents: 'none',
                     }}>
@@ -643,7 +927,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Classify overlay on image */}
                   {hasClassify && !hasEmotion && classifications.length > 0 && (
                     <div style={{
-                      position: 'absolute', top: 12, left: 12,
+                      position: 'absolute', top: (imgSize.offsetY || 0) + 12, left: (imgSize.offsetX || 0) + 12,
                       background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
                       pointerEvents: 'none', maxWidth: '60%',
                     }}>
@@ -666,7 +950,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
                   {/* Emotion overlay on image */}
                   {hasEmotion && emotions.length > 0 && (
                     <div style={{
-                      position: 'absolute', top: 12, left: 12,
+                      position: 'absolute', top: (imgSize.offsetY || 0) + 12, left: (imgSize.offsetX || 0) + 12,
                       background: 'rgba(0,0,0,0.75)', borderRadius: 8, padding: '8px 12px',
                       pointerEvents: 'none', maxWidth: '60%',
                     }}>
@@ -693,7 +977,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
 
           {/* Action buttons */}
           <div className="flex gap-3 mt-4">
-            {(imgUrl || (isArcface && imgUrl)) && (
+            {isArcface && imgUrl && (
               <>
                 <button className="btn-primary" disabled={loading || !modelReady} onClick={runInference}>
                   {btnLabel}
@@ -872,7 +1156,7 @@ function VisionTryPage({ model, onBack: _onBack }) {
               color: 'var(--text-dim)', border: '1px solid var(--border)',
             }}>
               {mode === 'camera' ? (
-                <>WS {visionApi.streamUrl().replace(/^ws/, 'ws')}<br/>&nbsp;&nbsp;model_id={model.id}</>
+                <>WS {visionApi.streamUrl().replace(/^ws/, 'ws')}<br/>&nbsp;&nbsp;model_id={backendModelId}</>
               ) : (
                 <>POST {apiEndpoint}<br/>
                 {isArcface

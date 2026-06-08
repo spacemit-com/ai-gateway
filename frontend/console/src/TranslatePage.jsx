@@ -99,7 +99,7 @@ function TranslatePage({ model, onBack }) {
   const langName = (code) => LANG_OPTIONS.find(l => l.code === code)?.label || code;
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="btn-ghost" onClick={onBack}>{Icon.arrowLeft({ size: 16 })}</button>

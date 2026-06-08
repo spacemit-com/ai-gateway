@@ -15,6 +15,7 @@ window.API_BASES = {
   vad:    location.protocol + '//' + location.hostname + ':18790',  // /v1/vad/*
   vision: location.protocol + '//' + location.hostname + ':18790',  // /v1/vision/*
   llm:    location.protocol + '//' + location.hostname + ':18790',  // /v1/llm/*
+  vlm:    location.protocol + '//' + location.hostname + ':18790',  // /v1/vlm/*
 };
 
 // 是否使用 Mock 数据（当后端离线时自动兜底；手动置 true 强制 mock）

@@ -2,20 +2,21 @@
 const { useState, useEffect } = React;
 
 function Sidebar({ page, setPage }) {
-  const { Icon, asrApi, ttsApi, vadApi, visionApi, llmApi, t } = window;
-  const [health, setHealth] = useState({ asr: null, tts: null, vad: null, vision: null, llm: null });
+  const { Icon, asrApi, ttsApi, vadApi, visionApi, llmApi, vlmApi, t } = window;
+  const [health, setHealth] = useState({ asr: null, tts: null, vad: null, vision: null, llm: null, vlm: null });
   const serviceOnline = (r) => !!r && (r.ready || r.state === 'idle' || r.state === 'warming_up');
 
   useEffect(() => {
     const poll = async () => {
-      const [a, tt, v, vis, llm] = await Promise.all([
+      const [a, tt, v, vis, llm, vlm] = await Promise.all([
         asrApi.health().then(serviceOnline).catch(() => false),
         ttsApi.health().then(serviceOnline).catch(() => false),
         vadApi.health().then(serviceOnline).catch(() => false),
         visionApi.health().then(r => !!r.readiness).catch(() => false),
         llmApi.health().then(r => r.status === 'ready' || r.status === 'ok' || r.status === 'idle').catch(() => false),
+        vlmApi.health().then(r => r.status === 'ready' || r.status === 'ok' || r.status === 'idle').catch(() => false),
       ]);
-      setHealth({ asr: a, tts: tt, vad: v, vision: vis, llm });
+      setHealth({ asr: a, tts: tt, vad: v, vision: vis, llm, vlm });
     };
     poll();
     const id = setInterval(poll, 5000);
@@ -32,6 +33,7 @@ function Sidebar({ page, setPage }) {
     { id: 'manage',    label: t('语音模型管理'), icon: 'package' },
     { id: 'vision-manage', label: t('视觉模型管理'), icon: 'eye' },
     { id: 'llm-manage', label: t('LLM 管理'), icon: 'cpu' },
+    { id: 'vlm-manage', label: t('VLM 管理'), icon: 'image' },
     { id: 'lexicons',  label: t('词库管理'), icon: 'book' },
     { id: 'tasks',     label: t('异步任务'), icon: 'clock' },
     { id: 'vision-jobs', label: t('视觉任务'), icon: 'eye' },
@@ -63,6 +65,7 @@ function Sidebar({ page, setPage }) {
       <ServiceStatus name="VAD"    port="18790" ok={health.vad}/>
       <ServiceStatus name="Vision" port="18790" ok={health.vision}/>
       <ServiceStatus name="LLM"    port="18790" ok={health.llm}/>
+      <ServiceStatus name="VLM"    port="18790" ok={health.vlm}/>
 
       <div className="sidebar-footer">
         {allOnline ? (

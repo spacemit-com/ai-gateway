@@ -11,7 +11,16 @@ async function request(base, path, opts = {}) {
       headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
       ...opts,
     });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const json = await res.clone().json();
+        detail = json.detail?.message || json.message || json.detail || detail;
+      } catch (_) {}
+      const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      err.status = res.status;
+      throw err;
+    }
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) return await res.json();
     if (ct.startsWith('audio/')) return await res.blob();
@@ -255,51 +264,56 @@ window.systemApi = {
   events: (since) => request(API_BASES.asr, '/api/events?since=' + since).catch(() => []),
 };
 
+async function* chatCompletionStream(base, path, body) {
+  const t0 = performance.now();
+  const res = await fetch(base + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      detail = j.detail?.message || j.message || j.detail || detail;
+    } catch (_) {}
+    const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    err.status = res.status;
+    throw err;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let firstTokenAt = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') return;
+      try {
+        const chunk = JSON.parse(payload);
+        if (!firstTokenAt && chunk.choices?.[0]?.delta?.content) {
+          firstTokenAt = performance.now();
+        }
+        chunk._timing = { t0, firstTokenAt, now: performance.now() };
+        yield chunk;
+      } catch (_) {}
+    }
+  }
+}
+
 // ---------------- LLM ----------------
 window.llmApi = {
   listModels:   () => request(API_BASES.llm, '/v1/llm/models'),
   health:       () => request(API_BASES.llm, '/v1/llm/healthz'),
   chat:         (body) => request(API_BASES.llm, '/v1/llm/chat/completions',
                    { method: 'POST', body: JSON.stringify(body) }),
-  chatStream:   async function*(body) {
-    const t0 = performance.now();
-    const res = await fetch(API_BASES.llm + '/v1/llm/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, stream: true }),
-    });
-    if (!res.ok) {
-      let detail = `${res.status} ${res.statusText}`;
-      try { const j = await res.json(); if (j.detail) detail = j.detail; } catch {}
-      const err = new Error(detail);
-      err.status = res.status;
-      throw err;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    let firstTokenAt = null;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return;
-        try {
-          const chunk = JSON.parse(payload);
-          if (!firstTokenAt && chunk.choices?.[0]?.delta?.content) {
-            firstTokenAt = performance.now();
-          }
-          chunk._timing = { t0, firstTokenAt, now: performance.now() };
-          yield chunk;
-        } catch {}
-      }
-    }
-  },
+  chatStream:   (body) => chatCompletionStream(API_BASES.llm, '/v1/llm/chat/completions', body),
   // Model management
   registerModel:   (body) => request(API_BASES.llm, '/v1/llm/models/register',
                      { method: 'POST', body: JSON.stringify(body) }),
@@ -316,5 +330,29 @@ window.llmApi = {
                      { method: 'POST' }),
   getDownload:     (model) => request(API_BASES.llm, '/v1/llm/models/' + encodeURIComponent(model) + '/download'),
   cancelDownload:  (model) => request(API_BASES.llm, '/v1/llm/models/' + encodeURIComponent(model) + '/download',
+                     { method: 'DELETE' }),
+};
+
+// ---------------- VLM ----------------
+window.vlmApi = {
+  listModels:   () => request(API_BASES.vlm, '/v1/vlm/models'),
+  health:       () => request(API_BASES.vlm, '/v1/vlm/healthz'),
+  chat:         (body) => request(API_BASES.vlm, '/v1/vlm/chat/completions',
+                   { method: 'POST', body: JSON.stringify(body) }),
+  chatStream:   (body) => chatCompletionStream(API_BASES.vlm, '/v1/vlm/chat/completions', body),
+  registerModel:   (body) => request(API_BASES.vlm, '/v1/vlm/models/register',
+                     { method: 'POST', body: JSON.stringify(body) }),
+  deregisterModel: (model) => request(API_BASES.vlm, '/v1/vlm/models/deregister',
+                     { method: 'POST', body: JSON.stringify({ model }) }),
+  loadModel:       (model, extra_args = []) => request(API_BASES.vlm, '/v1/vlm/models/load',
+                     { method: 'POST', body: JSON.stringify({ model, extra_args }) }),
+  unloadModel:     (model) => request(API_BASES.vlm, '/v1/vlm/models/unload',
+                     { method: 'POST', body: JSON.stringify({ model }) }),
+  switchModel:     (model) => request(API_BASES.vlm, '/v1/vlm/models/switch',
+                     { method: 'POST', body: JSON.stringify({ model }) }),
+  startDownload:   (model) => request(API_BASES.vlm, '/v1/vlm/models/' + encodeURIComponent(model) + '/download',
+                     { method: 'POST' }),
+  getDownload:     (model) => request(API_BASES.vlm, '/v1/vlm/models/' + encodeURIComponent(model) + '/download'),
+  cancelDownload:  (model) => request(API_BASES.vlm, '/v1/vlm/models/' + encodeURIComponent(model) + '/download',
                      { method: 'DELETE' }),
 };

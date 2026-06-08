@@ -7,7 +7,7 @@ SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank 统一 H
 生产部署用 `.deb` 包一键完成 apt 依赖、Python 环境、systemd 服务注册启动，无需手动操作。源码开发或调试请参考 [软件调试](#软件调试) 章节。
 
 
-`spacemit-ai-gateway` 已发布到 SpacemiT 内部 apt 源。包内带完整的安装钩子：apt 系统依赖随 `debian/control` 的 `Depends` 字段自动解析；postinst 脚本会在 `/opt/spacemit-ai-gateway/venv` 创建虚拟环境，从 SpacemiT GitLab PyPI 拉取 `spacemit-asr/tts/vad/audio/vision` 与最新版 `spacemit-ai-gateway` wheel；systemd 单元 `spacemit-ai-gateway.service` 由 `dh_installsystemd` 自动注册并启动。
+`spacemit-ai-gateway` 已发布到 SpacemiT 内部 apt 源。包内带完整的安装钩子：apt 系统依赖随 `debian/control` 的 `Depends` 字段自动解析；postinst 脚本会在 `/opt/spacemit-ai-gateway/venv` 创建虚拟环境，并按 `/opt/spacemit-ai-gateway/requirements-runtime.txt` 从 SpacemiT GitLab PyPI 拉取锁定版本的 `spacemit-asr/tts/vad/audio/vision` 与 `spacemit-ai-gateway` wheel；systemd 单元 `spacemit-ai-gateway.service` 由 `dh_installsystemd` 自动注册并启动。
 `.deb` 同时安装运行配置到 `/opt/spacemit-ai-gateway/configs/`，安装模型清单 schema 到 `/opt/spacemit-ai-gateway/schema/`。
 
 ```bash
@@ -15,7 +15,7 @@ sudo apt update
 sudo apt install spacemit-ai-gateway
 ```
 
-安装过程会从 SpacemiT 内网 PyPI 拉取多个 wheel，首次执行可能耗时几分钟，请耐心等待。完成后查看运行状态与日志：
+安装过程会从 SpacemiT 内网 PyPI 按 `requirements-runtime.txt` 中锁定的 wheel 版本拉取多个 wheel；若内部 PyPI 缺少任一版本，安装会失败以避免混合运行时。首次执行可能耗时几分钟，请耐心等待。完成后查看运行状态与日志：
 
 ```bash
 systemctl status spacemit-ai-gateway

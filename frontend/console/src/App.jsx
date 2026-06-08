@@ -112,6 +112,7 @@ function App() {
   else if (page.name === 'manage')      content = <window.ManagePage/>;
   else if (page.name === 'vision-manage') content = <window.VisionManagePage/>;
   else if (page.name === 'llm-manage') content = <window.LLMManagePage/>;
+  else if (page.name === 'vlm-manage') content = <window.VLMManagePage/>;
   else if (page.name === 'lexicons')  content = <window.LexiconPage/>;
   else if (page.name === 'tasks')     content = <window.TasksPage/>;
   else if (page.name === 'vision-jobs') content = <window.VisionJobsPage/>;

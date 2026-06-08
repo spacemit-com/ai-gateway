@@ -29,6 +29,8 @@ class StreamSession:
     managed: ManagedModel
     fps_limit: int = 30
     priority: int = 0
+    conf: Optional[float] = None
+    iou: Optional[float] = None
     expires_at: float = 0.0
     created_at: float = field(default_factory=time.time)
     frame_count: int = 0
@@ -53,6 +55,8 @@ class StreamSessionManager:
         model_group: Optional[str] = None,
         fps_limit: Optional[int] = None,
         priority: Optional[int] = None,
+        conf: Optional[float] = None,
+        iou: Optional[float] = None,
     ) -> StreamSession:
         """从 WS start signal 或内部调用创建会话，返回 StreamSession。"""
         with self._lock:
@@ -69,6 +73,8 @@ class StreamSessionManager:
             managed=managed,
             fps_limit=fps,
             priority=priority or 0,
+            conf=conf,
+            iou=iou,
             expires_at=time.time() + self.DEFAULT_EXPIRE_SECONDS,
         )
 
@@ -85,6 +91,8 @@ class StreamSessionManager:
                 "model_group": model_group or session.model_id,
                 "fps_limit": session.fps_limit,
                 "priority": "normal" if session.priority == 0 else str(session.priority),
+                "conf": session.conf,
+                "iou": session.iou,
             },
         }
 
@@ -115,6 +123,18 @@ class StreamSessionManager:
                 cancelled += 1
         return cancelled
 
+    def update_session_thresholds(
+        self,
+        session: StreamSession,
+        conf: Optional[float] = None,
+        iou: Optional[float] = None,
+    ) -> None:
+        with self._lock:
+            if conf is not None:
+                session.conf = conf
+            if iou is not None:
+                session.iou = iou
+
     def process_frame(
         self, session: StreamSession, image_bytes: bytes, timestamp_ms: Optional[int] = None,
     ) -> StreamFrameResult:
@@ -131,7 +151,12 @@ class StreamSessionManager:
     ) -> StreamFrameResult:
         try:
             img_bgr = self._adapter.bytes_to_bgr(image_bytes)
-            ok, raw_results = self._adapter.infer_image(session.managed.backend_instance, img_bgr)
+            ok, raw_results = self._adapter.infer_image(
+                session.managed.backend_instance,
+                img_bgr,
+                conf=session.conf,
+                iou=session.iou,
+            )
             if not ok:
                 raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, "stream frame inference failed")
 

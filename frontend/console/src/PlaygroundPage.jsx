@@ -1,8 +1,17 @@
 // Playground —— LLM / VLM 通用对话
 const { useState: useStateP, useRef: useRefP, useEffect: useEffectP } = React;
 
+function serializeChatMessage(message) {
+  const { _img, _preview, ...rest } = message;
+  if (Array.isArray(rest.content)) {
+    const textPart = rest.content.find(part => part && part.type === 'text');
+    rest.content = textPart?.text != null ? textPart.text : (_preview || '');
+  }
+  return rest;
+}
+
 function PlaygroundPage({ model, onBack }) {
-  const { Icon, llmApi, t } = window;
+  const { Icon, llmApi, vlmApi, t } = window;
   const [messages, setMessages] = useStateP([]);
   const [input, setInput] = useStateP('');
   const [imgFile, setImgFile] = useStateP(null);
@@ -18,29 +27,36 @@ function PlaygroundPage({ model, onBack }) {
   const endRef = useRefP(null);
 
   const isVLM = model.domain === 'vlm';
+  const chatApi = isVLM ? vlmApi : llmApi;
+  const storeDomain = isVLM ? 'vlm' : 'llm';
+  const endpointPath = isVLM ? '/v1/vlm/chat/completions' : '/v1/llm/chat/completions';
+  const historyType = isVLM ? 'VLM' : 'LLM';
+  const defaultImagePrompt = t('请描述这张图片');
 
   useEffectP(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [messages]);
 
   useEffectP(() => {
-    const s = window.pageStateStore?.load('llm', model.id);
-    if (s?.messages) setMessages(s.messages);
-  }, [model.id]);
+    setSelectedModel(model.id);
+    setMetrics(null);
+    setModelError(null);
+    setImgFile(null);
+    setImgDataUrl(null);
+    const s = window.pageStateStore?.load(storeDomain, model.id);
+    setMessages(s?.messages || []);
+  }, [model.id, storeDomain]);
 
   useEffectP(() => {
     if (messages.length === 0) return;
-    const toSave = messages.map(m => {
-      const { _img, ...rest } = m;
-      return rest;
-    });
-    window.pageStateStore?.save('llm', model.id, { messages: toSave });
-  }, [messages, model.id]);
+    const toSave = messages.map(serializeChatMessage);
+    window.pageStateStore?.save(storeDomain, model.id, { messages: toSave });
+  }, [messages, model.id, storeDomain]);
 
   useEffectP(() => {
-    llmApi.listModels().then(models => {
+    chatApi.listModels().then(models => {
       const loaded = (models || []).filter(m => m.status === 'loaded');
       setAvailableModels(loaded);
     }).catch(() => {});
-  }, []);
+  }, [chatApi]);
 
   const onImage = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -56,12 +72,14 @@ function PlaygroundPage({ model, onBack }) {
     let userContent = input;
     if (isVLM && imgDataUrl) {
       userContent = [
-        { type: 'text', text: input || '请描述这张图片' },
+        { type: 'text', text: input || defaultImagePrompt },
         { type: 'image_url', image_url: { url: imgDataUrl } },
       ];
     }
 
-    const userMsg = { role: 'user', content: userContent, _preview: input, _img: imgDataUrl };
+    const userPreview = input || (isVLM && imgDataUrl ? defaultImagePrompt : input);
+    const inputPreview = userPreview.slice(0, 50) + (userPreview.length > 50 ? '…' : '');
+    const userMsg = { role: 'user', content: userContent, _preview: userPreview, _img: imgDataUrl };
     const history = [...messages, userMsg];
     setMessages(history);
     setInput(''); setImgFile(null); setImgDataUrl(null); setLoading(true);
@@ -81,7 +99,7 @@ function PlaygroundPage({ model, onBack }) {
     try {
       if (streamMode) {
         let completionTokens = 0, promptTokens = 0, serverTimings = null, accText = '';
-        for await (const chunk of llmApi.chatStream(body)) {
+        for await (const chunk of chatApi.chatStream(body)) {
           const delta = chunk.choices?.[0]?.delta?.content || '';
           if (delta) {
             accText += delta;
@@ -109,31 +127,32 @@ function PlaygroundPage({ model, onBack }) {
           completion_tokens: serverTimings?.predicted_n || completionTokens,
         });
         window.historyStore?.push({
-          model: selectedModel, type: 'LLM',
-          input: input.slice(0, 50) + (input.length > 50 ? '…' : ''),
+          model: selectedModel, type: historyType,
+          input: inputPreview,
           output: accText.slice(0, 60),
           latency: Date.now() - _t0,
         });
       } else {
-        const res = await llmApi.chat(body);
+        const res = await chatApi.chat(body);
         const txt = res.choices?.[0]?.message?.content || '[无返回]';
         setMessages(m => {
           const copy = [...m];
           copy[assistantIdx] = { role: 'assistant', content: txt };
           return copy;
         });
-        if (res.usage) {
+        if (res.usage || res.timings) {
+          const timings = res.timings || {};
           setMetrics({
             ttft_ms: null,
-            tg_tps: 0,
-            pp_tps: 0,
-            prompt_tokens: res.usage.prompt_tokens || 0,
-            completion_tokens: res.usage.completion_tokens || 0,
+            tg_tps: timings.predicted_per_second || 0,
+            pp_tps: timings.prompt_per_second || 0,
+            prompt_tokens: timings.prompt_n || res.usage?.prompt_tokens || 0,
+            completion_tokens: timings.predicted_n || res.usage?.completion_tokens || 0,
           });
         }
         window.historyStore?.push({
-          model: selectedModel, type: 'LLM',
-          input: input.slice(0, 50) + (input.length > 50 ? '…' : ''),
+          model: selectedModel, type: historyType,
+          input: inputPreview,
           output: txt.slice(0, 60),
           latency: Date.now() - _t0,
         });
@@ -150,14 +169,14 @@ function PlaygroundPage({ model, onBack }) {
   };
 
   return (
-    <div className="main-inner">
+    <div className="main-inner try-page">
       <div className="back-link" onClick={onBack}>
         {Icon.arrowLeft({ size: 14 })}<span>{t('返回模型选择')}</span>
       </div>
       <div className="page-header">
         <div>
           <div className="page-title">{model.name}</div>
-          <div className="page-sub">{isVLM ? 'VLM' : 'LLM'} · {selectedModel} · POST /v1/chat/completions</div>
+          <div className="page-sub">{historyType} · {selectedModel} · POST {endpointPath}</div>
         </div>
         <div className="flex gap-2" style={{ alignItems: 'center' }}>
           {availableModels.length > 1 && (
@@ -170,21 +189,21 @@ function PlaygroundPage({ model, onBack }) {
               ))}
             </select>
           )}
-          <button className="btn-ghost" onClick={() => { setMessages([]); setMetrics(null); window.pageStateStore?.clear('llm', model.id); }}>{t('清空对话')}</button>
+          <button className="btn-ghost" onClick={() => { setMessages([]); setMetrics(null); window.pageStateStore?.clear(storeDomain, model.id); }}>{t('清空对话')}</button>
         </div>
       </div>
 
       <div className="try-layout">
-        <div className="try-main" style={{ display: 'flex', flexDirection: 'column', padding: 0, maxHeight: 'calc(100vh - 240px)' }}>
-          <div style={{
+        <div className="try-main playground-chat-main" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
+          <div className="playground-chat-scroll" style={{
             flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column',
             gap: 12, minHeight: 0,
           }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--text-low)', margin: 'auto',
                             fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                开始和 {model.name} 对话…
-                {isVLM && <div className="mt-2">支持上传图片进行多模态理解</div>}
+                {t('开始和 {model} 对话…').replace('{model}', model.name)}
+                {isVLM && <div className="mt-2">{t('支持上传图片进行多模态理解')}</div>}
               </div>
             )}
             {messages.map((m, i) => (
@@ -204,7 +223,9 @@ function PlaygroundPage({ model, onBack }) {
                 <div style={{ flex: 1, fontSize: 13 }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('模型不可用')}</div>
                   <div style={{ color: 'var(--text-dim)', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{modelError}</div>
-                  <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('请前往 LLM 模型管理页面下载并加载该模型')}</div>
+                  <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+                    {isVLM ? t('请前往 VLM 模型管理页面下载并加载该模型') : t('请前往 LLM 模型管理页面下载并加载该模型')}
+                  </div>
                 </div>
                 <button className="btn-ghost" onClick={() => setModelError(null)}
                   style={{ padding: 4, flexShrink: 0 }}>{Icon.x({ size: 14 })}</button>
@@ -234,7 +255,7 @@ function PlaygroundPage({ model, onBack }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}/>
-              <button className="btn-primary" disabled={loading} onClick={send}
+              <button className="btn-primary" disabled={loading || (!input.trim() && !imgDataUrl)} onClick={send}
                 style={{ padding: '0 16px' }}>
                 {Icon.send({ size: 14 })}
               </button>
@@ -301,7 +322,7 @@ function PlaygroundPage({ model, onBack }) {
               background: 'var(--bg-1)', padding: 10, borderRadius: 6,
               color: 'var(--text-dim)', border: '1px solid var(--border)',
             }}>
-              POST /v1/chat/completions<br/>
+              POST {endpointPath}<br/>
               &nbsp;&nbsp;model={selectedModel}<br/>
               &nbsp;&nbsp;stream={streamMode ? 'true' : 'false'}
             </code>
