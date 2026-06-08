@@ -1,6 +1,6 @@
 {
   "id": "vlm",
-  "name": "视觉语言模型",
+  "name": "视觉语言(VLM)模型",
   "nameEn": "Vision Language Models",
   "description": "图文理解与视觉推理模型，支持图像描述、视觉问答等任务",
   "descriptionEn": "Image-text understanding and visual reasoning models for image description, VQA, etc.",
