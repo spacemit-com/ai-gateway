@@ -1,0 +1,9 @@
+# Pinned SpacemiT Python runtime wheels for the matching Debian package.
+# Keep spacemit-ai-gateway in sync with pyproject.toml and __version__.
+
+spacemit-ai-gateway==0.1.10
+spacemit-asr==1.0.1
+spacemit-tts==1.0.3
+spacemit-vad==1.0.0
+spacemit-audio==1.0.0
+spacemit-vision==0.1.2

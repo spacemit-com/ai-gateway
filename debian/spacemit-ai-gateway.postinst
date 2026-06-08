@@ -4,6 +4,7 @@ set -e
 VENV_DIR=/opt/spacemit-ai-gateway/venv
 PYPI_INDEX=https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple
 PYPI_EXTRA=https://mirrors.aliyun.com/pypi/simple/
+RUNTIME_REQUIREMENTS=/opt/spacemit-ai-gateway/requirements-runtime.txt
 
 case "$1" in
     configure)
@@ -15,18 +16,19 @@ case "$1" in
         echo "==> Upgrading pip in venv"
         "$VENV_DIR/bin/python" -m pip install -U pip
 
-        echo "==> Installing SpacemiT model_zoo wheels (this may take a few minutes)..."
-        "$VENV_DIR/bin/python" -m pip install \
-            --upgrade \
-            --index-url "$PYPI_INDEX" \
-            spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision
+        if [ ! -f "$RUNTIME_REQUIREMENTS" ]; then
+            echo "==> ERROR: missing runtime requirements: $RUNTIME_REQUIREMENTS" >&2
+            exit 1
+        fi
 
-        echo "==> Installing latest spacemit-ai-gateway from PyPI..."
-        "$VENV_DIR/bin/python" -m pip install spacemit-ai-gateway \
-            --upgrade \
+        # Fail fast when any pinned runtime wheel is missing from PyPI; a partial
+        # latest-version mix is more dangerous than a failed package configure.
+        echo "==> Installing pinned SpacemiT AI Gateway runtime wheels..."
+        "$VENV_DIR/bin/python" -m pip install \
             --prefer-binary \
             --index-url "$PYPI_INDEX" \
-            --extra-index-url "$PYPI_EXTRA"
+            --extra-index-url "$PYPI_EXTRA" \
+            -r "$RUNTIME_REQUIREMENTS"
 
         # ---- 让 venv 多用户可读 ----
         chmod -R a+rX /opt/spacemit-ai-gateway/venv

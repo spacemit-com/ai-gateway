@@ -3,5 +3,6 @@ frontend/landing.css      opt/spacemit-ai-gateway/frontend/
 frontend/landing-hero.js  opt/spacemit-ai-gateway/frontend/
 frontend/serve.py         opt/spacemit-ai-gateway/frontend/
 frontend/console          opt/spacemit-ai-gateway/frontend/
+requirements-runtime.txt  opt/spacemit-ai-gateway/
 configs                   opt/spacemit-ai-gateway/
 schema/*.json             opt/spacemit-ai-gateway/schema/
