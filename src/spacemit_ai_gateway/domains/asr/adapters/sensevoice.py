@@ -77,7 +77,7 @@ class SenseVoiceBackend(AsrBackend):
         self._mock = False
         self._engine = None
         self._state = BackendReadyState.INITIALIZING
-        self._emotion_enabled = bool(config.enable_emotion)
+        self._emotion_enabled = False
 
         model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
         asset = _get_model_asset(config.models, config.backend)
@@ -109,8 +109,11 @@ class SenseVoiceBackend(AsrBackend):
             engine_config.punctuation_enabled = config.punctuation
             engine_config.provider = config.provider
             if hasattr(engine_config, "enable_emotion"):
-                engine_config.enable_emotion = self._emotion_enabled
-            elif self._emotion_enabled:
+                # Keep metadata available for per-request emotion toggles. The
+                # public response still only exposes emotion when requested.
+                engine_config.enable_emotion = True
+                self._emotion_enabled = True
+            elif config.enable_emotion:
                 raise RuntimeError("spacemit-asr>=1.0.2 is required for enable_emotion")
             self._engine = spacemit_asr.Engine(engine_config)
             self._engine.initialize()

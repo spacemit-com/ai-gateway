@@ -61,12 +61,13 @@ class NoEmotionAsrBackend(AsrBackend):
 class ReloadableSenseVoiceBackend(AsrBackend):
     model_id = "sensevoice"
     model_name = "SenseVoice"
+    metadata_available = True
     shutdown_count = 0
 
     def __init__(self, config: AsrConfig):
         self._config = config
         self._state = BackendReadyState.READY
-        self._emotion_enabled = bool(config.enable_emotion)
+        self._emotion_enabled = self.metadata_available
 
     @property
     def backend_name(self) -> str:
@@ -182,6 +183,7 @@ async def test_explicit_false_overrides_default_emotion(monkeypatch):
         SessionStore(ttl_seconds=60, namespace="asr-explicit-false"),
         config=config,
     )
+    ReloadableSenseVoiceBackend.shutdown_count = 0
 
     resp = await service.recognize(
         b"\x00" * 16000,
@@ -194,9 +196,43 @@ async def test_explicit_false_overrides_default_emotion(monkeypatch):
     )
 
     assert resp.emotion is None
-    assert service._backends["sensevoice"] is not existing
-    assert service._backends["sensevoice"].emotion_enabled is False
-    assert service._backends["sensevoice"]._config.enable_emotion is False
+    assert service._backends["sensevoice"] is existing
+    assert service._backends["sensevoice"].emotion_enabled is True
+    assert service._backends["sensevoice"]._config.enable_emotion is True
+    assert ReloadableSenseVoiceBackend.shutdown_count == 0
+
+
+async def test_request_emotion_true_does_not_reload_backend(monkeypatch):
+    monkeypatch.setitem(
+        service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend
+    )
+    ReloadableSenseVoiceBackend.shutdown_count = 0
+    config = AsrConfig(
+        backend="sensevoice",
+        backends=["sensevoice"],
+        enable_emotion=False,
+    )
+    existing = ReloadableSenseVoiceBackend(config)
+    service = AsrService(
+        {"sensevoice": existing},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-request-emotion"),
+        config=config,
+    )
+
+    resp = await service.recognize(
+        b"\x00" * 16000,
+        RecognizeParams(
+            model="sensevoice",
+            language="zh",
+            sample_rate=16000,
+            enable_emotion=True,
+        ),
+    )
+
+    assert resp.emotion == "happy"
+    assert service._backends["sensevoice"] is existing
+    assert ReloadableSenseVoiceBackend.shutdown_count == 0
 
 
 async def test_update_params_reloads_loaded_backend_for_emotion(monkeypatch):
@@ -210,6 +246,7 @@ async def test_update_params_reloads_loaded_backend_for_emotion(monkeypatch):
         enable_emotion=False,
     )
     existing = ReloadableSenseVoiceBackend(config)
+    existing._emotion_enabled = False
     service = AsrService(
         {"sensevoice": existing},
         "sensevoice",
@@ -227,6 +264,34 @@ async def test_update_params_reloads_loaded_backend_for_emotion(monkeypatch):
     assert ReloadableSenseVoiceBackend.shutdown_count == 1
 
 
+async def test_update_params_emotion_keeps_engine_pending_without_reload(monkeypatch):
+    monkeypatch.setitem(
+        service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend
+    )
+    ReloadableSenseVoiceBackend.shutdown_count = 0
+    config = AsrConfig(
+        backend="sensevoice",
+        backends=["sensevoice"],
+        enable_emotion=False,
+    )
+    existing = ReloadableSenseVoiceBackend(config)
+    service = AsrService(
+        {"sensevoice": existing},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-param-pending"),
+        config=config,
+    )
+    service._engine_pending_restart = True
+
+    params = await service.update_params(AsrParamsPatch(enable_emotion=True))
+
+    assert params.enable_emotion is True
+    assert service._config.enable_emotion is True
+    assert service._backends["sensevoice"] is existing
+    assert service._engine_pending_restart is True
+    assert ReloadableSenseVoiceBackend.shutdown_count == 0
+
+
 async def test_update_params_emotion_reload_is_capability_based(monkeypatch):
     monkeypatch.setitem(
         service_module.ASR_REGISTRY,
@@ -240,6 +305,7 @@ async def test_update_params_emotion_reload_is_capability_based(monkeypatch):
         enable_emotion=False,
     )
     existing = ReloadableFutureEmotionBackend(config)
+    existing._emotion_enabled = False
     service = AsrService(
         {"future-emotion-asr": existing},
         "future-emotion-asr",
