@@ -10,7 +10,12 @@ from spacemit_ai_gateway.common.ready_state import BackendReadyState
 from spacemit_ai_gateway.common.schemas import ModelInfo
 from spacemit_ai_gateway.common.sessions import SessionStore
 from spacemit_ai_gateway.domains.asr.adapters.base import AsrBackend, RecognitionResult
-from spacemit_ai_gateway.domains.asr.schemas import RecognizeParams, StreamSessionRequest
+from spacemit_ai_gateway.domains.asr import service as service_module
+from spacemit_ai_gateway.domains.asr.schemas import (
+    AsrParamsPatch,
+    RecognizeParams,
+    StreamSessionRequest,
+)
 from spacemit_ai_gateway.domains.asr.service import AsrService
 
 
@@ -53,6 +58,68 @@ class NoEmotionAsrBackend(AsrBackend):
         ]
 
 
+class ReloadableSenseVoiceBackend(AsrBackend):
+    shutdown_count = 0
+
+    def __init__(self, config: AsrConfig):
+        self._config = config
+        self._state = BackendReadyState.READY
+        self._emotion_enabled = bool(config.enable_emotion)
+
+    @property
+    def backend_name(self) -> str:
+        return "sensevoice"
+
+    @property
+    def state(self) -> BackendReadyState:
+        return self._state
+
+    @property
+    def emotion_enabled(self) -> bool:
+        return self._emotion_enabled
+
+    async def recognize(
+        self, audio, sample_rate, language, punctuation, hotwords=None,
+        enable_emotion=False,
+    ):
+        return RecognitionResult(
+            text="sensevoice transcription",
+            duration_ms=1000.0,
+            processing_ms=2.0,
+            rtf=0.002,
+            language=language,
+            emotion="happy" if enable_emotion else None,
+        )
+
+    async def create_stream(self, sample_rate, language, partial, enable_emotion=False):
+        raise NotImplementedError
+
+    def get_supported_languages(self):
+        return ["zh", "en", "auto"]
+
+    def get_models(self):
+        return [
+            ModelInfo(
+                id="sensevoice",
+                name="SenseVoice",
+                capabilities=["multilingual", "streaming", "emotion"],
+                languages=["zh", "en", "auto"],
+            ),
+        ]
+
+    def get_params(self):
+        return {
+            "language": self._config.language,
+            "punctuation": self._config.punctuation,
+            "hotword_weight": None,
+            "itn": None,
+            "enable_emotion": self._config.enable_emotion,
+        }
+
+    async def shutdown(self) -> None:
+        type(self).shutdown_count += 1
+
+
 async def test_recognize_returns_text(asr_service):
     resp = await asr_service.recognize(
         b"\x00" * 16000,
@@ -90,6 +157,67 @@ async def test_recognize_ignores_emotion_for_unsupported_model():
         ),
     )
     assert resp.emotion is None
+
+
+async def test_explicit_false_overrides_default_emotion(monkeypatch):
+    monkeypatch.setitem(
+        service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend
+    )
+    config = AsrConfig(
+        backend="sensevoice",
+        backends=["sensevoice"],
+        enable_emotion=True,
+    )
+    existing = ReloadableSenseVoiceBackend(config)
+    service = AsrService(
+        {"sensevoice": existing},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-explicit-false"),
+        config=config,
+    )
+
+    resp = await service.recognize(
+        b"\x00" * 16000,
+        RecognizeParams(
+            model="sensevoice",
+            language="zh",
+            sample_rate=16000,
+            enable_emotion=False,
+        ),
+    )
+
+    assert resp.emotion is None
+    assert service._backends["sensevoice"] is not existing
+    assert service._backends["sensevoice"].emotion_enabled is False
+    assert service._backends["sensevoice"]._config.enable_emotion is False
+
+
+async def test_update_params_reloads_loaded_backend_for_emotion(monkeypatch):
+    monkeypatch.setitem(
+        service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend
+    )
+    ReloadableSenseVoiceBackend.shutdown_count = 0
+    config = AsrConfig(
+        backend="sensevoice",
+        backends=["sensevoice"],
+        enable_emotion=False,
+    )
+    existing = ReloadableSenseVoiceBackend(config)
+    service = AsrService(
+        {"sensevoice": existing},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-param-emotion"),
+        config=config,
+    )
+
+    params = await service.update_params(AsrParamsPatch(enable_emotion=True))
+
+    assert params.enable_emotion is True
+    assert service._config.enable_emotion is True
+    assert service._backends["sensevoice"] is not existing
+    assert service._backends["sensevoice"].emotion_enabled is True
+    assert service._engine_pending_restart is False
+    assert ReloadableSenseVoiceBackend.shutdown_count == 1
 
 
 async def test_create_stream_session_and_open(asr_service):

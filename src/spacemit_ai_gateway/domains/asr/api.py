@@ -140,7 +140,7 @@ async def update_params(
     body: AsrParamsPatch,
     service: AsrService = Depends(get_asr_service),
 ) -> AsrParamsResponse:
-    return service.update_params(body)
+    return await service.update_params(body)
 
 
 @router.get("/audio", response_model=AsrAudioResponse, summary="获取音频预处理配置")

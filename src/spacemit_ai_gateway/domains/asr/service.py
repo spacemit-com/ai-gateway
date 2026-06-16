@@ -156,12 +156,19 @@ class AsrService:
         name = self._model_id(model)
         async with self._load_lock:
             existing = self._backends.get(name)
-            needs_emotion = bool(enable_emotion) and name == "sensevoice"
+            requested_emotion = (
+                bool(enable_emotion)
+                if name == "sensevoice" and enable_emotion is not None
+                else None
+            )
             existing_has_emotion = bool(getattr(existing, "emotion_enabled", False))
             if (
                 existing is not None
                 and existing.state.is_serving
-                and not (needs_emotion and not existing_has_emotion)
+                and (
+                    requested_emotion is None
+                    or existing_has_emotion == requested_emotion
+                )
             ):
                 return existing
 
@@ -181,9 +188,7 @@ class AsrService:
             await self._shutdown_loaded_backends()
             cfg_updates = {"backend": name}
             if name == "sensevoice" and enable_emotion is not None:
-                cfg_updates["enable_emotion"] = (
-                    bool(enable_emotion) or bool(self._config.enable_emotion)
-                )
+                cfg_updates["enable_emotion"] = bool(enable_emotion)
             cfg = self._config.model_copy(update=cfg_updates)
             logger.info("loading ASR backend '%s' on demand", name)
             backend = cls(cfg)
@@ -357,21 +362,32 @@ class AsrService:
         }
         return AsrParamsResponse(**data)
 
-    def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
-        cfg = self._backends[self._default]._config if self._default in self._backends else self._config
-        if patch.language is not None:
-            cfg.language = patch.language
-        if patch.punctuation is not None:
-            cfg.punctuation = patch.punctuation
+    async def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
+        backend = self._backends.get(self._default)
+        cfg_targets = [self._config]
+        backend_config = getattr(backend, "_config", None)
+        if backend_config is not None and backend_config is not self._config:
+            cfg_targets.append(backend_config)
+
+        for cfg in cfg_targets:
+            if patch.language is not None:
+                cfg.language = patch.language
+            if patch.punctuation is not None:
+                cfg.punctuation = patch.punctuation
+            if patch.enable_emotion is not None:
+                cfg.enable_emotion = patch.enable_emotion
+
         if patch.enable_emotion is not None:
-            cfg.enable_emotion = patch.enable_emotion
-            backend = self._backends.get(self._default)
-            if (
-                patch.enable_emotion
-                and backend is not None
-                and not getattr(backend, "emotion_enabled", False)
-            ):
-                self._engine_pending_restart = True
+            effective = self._effective_enable_emotion(
+                patch.enable_emotion, self._default
+            )
+            if backend is not None and self._model_supports_emotion(self._default):
+                current = bool(getattr(backend, "emotion_enabled", False))
+                if current != effective:
+                    await self._ensure_backend(
+                        self._default, enable_emotion=effective
+                    )
+            self._engine_pending_restart = False
         return self.get_params()
 
     # ---- audio ----
