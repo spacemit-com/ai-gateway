@@ -148,55 +148,66 @@ class AsrService:
             self._backends.pop(name, None)
             await backend.shutdown()
 
-    async def _ensure_backend(
+    async def _ensure_backend_locked(
         self,
         model: Optional[str] = None,
         enable_emotion: Optional[bool] = None,
     ) -> AsrBackend:
         name = self._model_id(model)
-        async with self._load_lock:
-            existing = self._backends.get(name)
-            requested_emotion = (
-                bool(enable_emotion)
-                if name == "sensevoice" and enable_emotion is not None
-                else None
+        existing = self._backends.get(name)
+        supports_emotion = self._model_supports_emotion(name)
+        config_controls_emotion = supports_emotion and (
+            existing is None or hasattr(existing, "emotion_enabled")
+        )
+        requested_emotion = (
+            bool(enable_emotion)
+            if config_controls_emotion and enable_emotion is not None
+            else None
+        )
+        existing_has_emotion = bool(getattr(existing, "emotion_enabled", False))
+        if (
+            existing is not None
+            and existing.state.is_serving
+            and (
+                requested_emotion is None
+                or existing_has_emotion == requested_emotion
             )
-            existing_has_emotion = bool(getattr(existing, "emotion_enabled", False))
-            if (
-                existing is not None
-                and existing.state.is_serving
-                and (
-                    requested_emotion is None
-                    or existing_has_emotion == requested_emotion
-                )
-            ):
-                return existing
+        ):
+            return existing
 
-            if name not in self._allowed_backends:
-                raise ModelUnknown(
-                    f"model '{name}' not allowed",
-                    details={"available": self._allowed_backends},
-                )
+        if name not in self._allowed_backends:
+            raise ModelUnknown(
+                f"model '{name}' not allowed",
+                details={"available": self._allowed_backends},
+            )
 
-            cls = ASR_REGISTRY.get(name)
-            if cls is None:
-                raise ModelUnknown(
-                    f"model '{name}' not registered",
-                    details={"available": self._allowed_backends},
-                )
+        cls = ASR_REGISTRY.get(name)
+        if cls is None:
+            raise ModelUnknown(
+                f"model '{name}' not registered",
+                details={"available": self._allowed_backends},
+            )
 
-            await self._shutdown_loaded_backends()
-            cfg_updates = {"backend": name}
-            if name == "sensevoice" and enable_emotion is not None:
-                cfg_updates["enable_emotion"] = bool(enable_emotion)
-            cfg = self._config.model_copy(update=cfg_updates)
-            logger.info("loading ASR backend '%s' on demand", name)
-            backend = cls(cfg)
-            await backend.warmup()
-            self._backends[name] = backend
-            self._default = name
-            await self._sync_hotwords_to_backends()
-            return backend
+        await self._shutdown_loaded_backends()
+        cfg_updates = {"backend": name}
+        if config_controls_emotion and enable_emotion is not None:
+            cfg_updates["enable_emotion"] = bool(enable_emotion)
+        cfg = self._config.model_copy(update=cfg_updates)
+        logger.info("loading ASR backend '%s' on demand", name)
+        backend = cls(cfg)
+        await backend.warmup()
+        self._backends[name] = backend
+        self._default = name
+        await self._sync_hotwords_to_backends()
+        return backend
+
+    async def _ensure_backend(
+        self,
+        model: Optional[str] = None,
+        enable_emotion: Optional[bool] = None,
+    ) -> AsrBackend:
+        async with self._load_lock:
+            return await self._ensure_backend_locked(model, enable_emotion)
 
     def _get_backend(self, model: Optional[str] = None) -> AsrBackend:
         name = model or self._default
@@ -363,32 +374,33 @@ class AsrService:
         return AsrParamsResponse(**data)
 
     async def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
-        backend = self._backends.get(self._default)
-        cfg_targets = [self._config]
-        backend_config = getattr(backend, "_config", None)
-        if backend_config is not None and backend_config is not self._config:
-            cfg_targets.append(backend_config)
+        async with self._load_lock:
+            backend = self._backends.get(self._default)
+            cfg_targets = [self._config]
+            backend_config = getattr(backend, "_config", None)
+            if backend_config is not None and backend_config is not self._config:
+                cfg_targets.append(backend_config)
 
-        for cfg in cfg_targets:
-            if patch.language is not None:
-                cfg.language = patch.language
-            if patch.punctuation is not None:
-                cfg.punctuation = patch.punctuation
+            for cfg in cfg_targets:
+                if patch.language is not None:
+                    cfg.language = patch.language
+                if patch.punctuation is not None:
+                    cfg.punctuation = patch.punctuation
+                if patch.enable_emotion is not None:
+                    cfg.enable_emotion = patch.enable_emotion
+
             if patch.enable_emotion is not None:
-                cfg.enable_emotion = patch.enable_emotion
-
-        if patch.enable_emotion is not None:
-            effective = self._effective_enable_emotion(
-                patch.enable_emotion, self._default
-            )
-            if backend is not None and self._model_supports_emotion(self._default):
-                current = bool(getattr(backend, "emotion_enabled", False))
-                if current != effective:
-                    await self._ensure_backend(
-                        self._default, enable_emotion=effective
-                    )
-            self._engine_pending_restart = False
-        return self.get_params()
+                effective = self._effective_enable_emotion(
+                    patch.enable_emotion, self._default
+                )
+                if backend is not None and self._model_supports_emotion(self._default):
+                    current = bool(getattr(backend, "emotion_enabled", False))
+                    if current != effective:
+                        await self._ensure_backend_locked(
+                            self._default, enable_emotion=effective
+                        )
+                self._engine_pending_restart = False
+            return self.get_params()
 
     # ---- audio ----
 
