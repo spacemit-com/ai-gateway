@@ -28,6 +28,7 @@ asr:
   language: "auto"
   punctuation: true
   provider: "spacemit"         # cpu | spacemit
+  enable_emotion: false         # SenseVoice 情绪标签默认关闭，请求可单独开启
   warmup_audio_ms: 1000        # 按需加载时输入指定长度的静音 PCM 跑一轮 ASR；0 表示跳过
   qwen3:
     endpoint: "http://127.0.0.1:8063/v1/chat/completions"

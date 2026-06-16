@@ -12,6 +12,7 @@ class RecognizeParams(BaseModel):
     punctuation: bool = Field(default=True, description="是否添加标点")
     word_timestamps: bool = Field(default=False, description="是否返回词级时间戳")
     hotwords: Optional[str] = Field(default=None, description="热词，逗号分隔")
+    enable_emotion: Optional[bool] = Field(default=None, description="是否返回 SenseVoice 情绪标签")
 
 
 class SentenceInfo(BaseModel):
@@ -27,6 +28,7 @@ class RecognizeResponse(BaseModel):
     processing_ms: float
     rtf: float
     language: Optional[str] = None
+    emotion: Optional[str] = None
 
 
 class StreamSessionRequest(BaseModel):
@@ -36,6 +38,7 @@ class StreamSessionRequest(BaseModel):
     language: str = Field(default="auto")
     partial_results: bool = Field(default=True)
     client_id: Optional[str] = None
+    enable_emotion: Optional[bool] = None
 
 
 class StreamSessionResponse(BaseModel):
@@ -51,6 +54,7 @@ class StreamQuery(BaseModel):
     language: str = "auto"
     sample_rate: int = 16000
     partial: bool = True
+    enable_emotion: Optional[bool] = None
 
 
 class LanguagesResponse(BaseModel):
@@ -71,6 +75,7 @@ class AsrParamsResponse(BaseModel):
     punctuation: bool
     hotword_weight: Optional[float] = None
     itn: Optional[bool] = None
+    enable_emotion: bool = False
 
 
 class AsrParamsPatch(BaseModel):
@@ -78,6 +83,7 @@ class AsrParamsPatch(BaseModel):
     punctuation: Optional[bool] = None
     hotword_weight: Optional[float] = None
     itn: Optional[bool] = None
+    enable_emotion: Optional[bool] = None
 
 
 # ---- audio ----
@@ -137,6 +143,7 @@ class JobSubmitRequest(BaseModel):
     language: str = Field(default="auto")
     model: Optional[str] = None
     priority: int = Field(default=0)
+    enable_emotion: Optional[bool] = None
 
 
 class JobSubmitResponse(BaseModel):

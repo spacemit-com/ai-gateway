@@ -12,12 +12,16 @@ function ASRTryPage({ model, onBack }) {
   const [levels, setLevels] = useStateA(Array(48).fill(6));
   const [language, setLanguage] = useStateA('auto');
   const [enablePunc, setEnablePunc] = useStateA(true);
+  const [enableEmotion, setEnableEmotion] = useStateA(false);
   const [streaming, setStreaming] = useStateA(true);
   const [recogMeta, setRecogMeta] = useStateA(null);
+  const [emotion, setEmotion] = useStateA('');
   const [langList, setLangList] = useStateA([
     { code: 'auto', label: '自动检测' }, { code: 'zh', label: '中文' },
     { code: 'en', label: 'English' }, { code: 'ja', label: '日本語' },
   ]);
+  const supportsEmotion = (model.capabilities || []).includes('emotion');
+  const activeEnableEmotion = supportsEmotion && enableEmotion;
 
   const recorderRef = useRefA(null);
   const streamRef = useRefA(null);
@@ -32,7 +36,7 @@ function ASRTryPage({ model, onBack }) {
 
   const startRecording = async () => {
     try {
-      setTranscript(''); setPartial(''); setAudioUrl(null); setRecogMeta(null); wsHandledRef.current = false;
+      setTranscript(''); setPartial(''); setAudioUrl(null); setRecogMeta(null); setEmotion(''); wsHandledRef.current = false;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
       streamRef.current = stream;
 
@@ -87,10 +91,12 @@ function ASRTryPage({ model, onBack }) {
 
               const t0 = Date.now();
               const res = await asrApi.recognize(pcmBlob, {
-                model: model.id, language, punctuation: enablePunc, sample_rate: 16000,
+                model: model.id, language, punctuation: enablePunc,
+                enable_emotion: activeEnableEmotion, sample_rate: 16000,
               });
               const clientMs = Date.now() - t0;
               setTranscript(res.text || '[无返回]');
+              setEmotion(res.emotion || '');
               setRecogMeta({
                 processing_ms: res.processing_ms || clientMs,
                 duration_ms: res.duration_ms || 0,
@@ -118,17 +124,20 @@ function ASRTryPage({ model, onBack }) {
         try {
           const sess = await asrApi.createSession({
             model: model.id, language, sample_rate: 16000, partial_results: true,
+            enable_emotion: activeEnableEmotion,
           });
           const wsUrl = asrApi.streamUrl()
             + '?session_id=' + encodeURIComponent(sess.session_id)
             + '&language=' + language
-            + '&sample_rate=16000&partial=true';
+            + '&sample_rate=16000&partial=true'
+            + '&enable_emotion=' + String(activeEnableEmotion);
           const ws = new WebSocket(wsUrl);
           wsRef.current = ws;
 
           ws.onmessage = (e) => {
             try {
               const m = JSON.parse(e.data);
+              if (m.emotion) setEmotion(m.emotion);
               if (m.type === 'partial')      { wsHandledRef.current = true; setPartial(m.text || ''); }
               if (m.type === 'sentence_end') { wsHandledRef.current = true; setTranscript(t => t + (m.text || '') + ' '); setPartial(''); }
               if (m.type === 'final')        { wsHandledRef.current = true; setTranscript(t => t + (m.text || '')); setPartial(''); }
@@ -194,7 +203,7 @@ function ASRTryPage({ model, onBack }) {
   const onFile = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     setAudioUrl(URL.createObjectURL(f));
-    setProcessing(true); setTranscript(''); setPartial(''); setRecogMeta(null);
+    setProcessing(true); setTranscript(''); setPartial(''); setRecogMeta(null); setEmotion('');
     const t0 = Date.now();
     try {
       // Decode any audio format to PCM int16 via AudioContext
@@ -208,9 +217,13 @@ function ASRTryPage({ model, onBack }) {
       }
       decodeCtx.close();
       const pcmBlob = new Blob([pcm.buffer], { type: 'audio/pcm' });
-      const res = await asrApi.recognize(pcmBlob, { model: model.id, language, punctuation: enablePunc, sample_rate: 16000 });
+      const res = await asrApi.recognize(pcmBlob, {
+        model: model.id, language, punctuation: enablePunc,
+        enable_emotion: activeEnableEmotion, sample_rate: 16000,
+      });
       const clientMs = Date.now() - t0;
       setTranscript(res.text || JSON.stringify(res));
+      setEmotion(res.emotion || '');
       setRecogMeta({
         processing_ms: res.processing_ms || clientMs,
         duration_ms: res.duration_ms || 0,
@@ -232,6 +245,10 @@ function ASRTryPage({ model, onBack }) {
   };
 
   useEffectA(() => {
+    if (!supportsEmotion && enableEmotion) setEnableEmotion(false);
+  }, [supportsEmotion, enableEmotion]);
+
+  useEffectA(() => {
     asrApi.languages().then(res => {
       const langs = res.languages || res;
       if (Array.isArray(langs) && langs.length > 0) {
@@ -250,12 +267,13 @@ function ASRTryPage({ model, onBack }) {
     const s = window.pageStateStore?.load('asr', model.id);
     if (s?.transcript) setTranscript(s.transcript);
     if (s?.recogMeta) setRecogMeta(s.recogMeta);
+    if (s?.emotion) setEmotion(s.emotion);
   }, [model.id]);
 
   useEffectA(() => {
     if (!transcript) return;
-    window.pageStateStore?.save('asr', model.id, { transcript, recogMeta });
-  }, [transcript, recogMeta, model.id]);
+    window.pageStateStore?.save('asr', model.id, { transcript, recogMeta, emotion });
+  }, [transcript, recogMeta, emotion, model.id]);
 
   const [loadError, setLoadError] = useStateA('');
   useEffectA(() => {
@@ -330,10 +348,16 @@ function ASRTryPage({ model, onBack }) {
             {partial && <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}> {partial}</span>}
           </div>
 
+          {emotion && (
+            <div className="flex gap-2 mt-3">
+              <span className="chip chip-accent">{t('情绪识别')} · {emotion}</span>
+            </div>
+          )}
+
           {transcript && (
             <div className="flex gap-2 mt-4">
               <button className="btn-ghost" onClick={() => window.copyText(transcript)}>{t('复制文本')}</button>
-              <button className="btn-ghost" onClick={() => { setTranscript(''); setRecogMeta(null); window.pageStateStore?.clear('asr', model.id); }}>{t('清空')}</button>
+              <button className="btn-ghost" onClick={() => { setTranscript(''); setRecogMeta(null); setEmotion(''); window.pageStateStore?.clear('asr', model.id); }}>{t('清空')}</button>
             </div>
           )}
 
@@ -388,6 +412,14 @@ function ASRTryPage({ model, onBack }) {
                 <span>{t('自动标点（ITN）')}</span>
               </label>
             </div>
+            {supportsEmotion && (
+              <div className="tweak-row">
+                <label className="tweak-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={enableEmotion} onChange={e => { setEnableEmotion(e.target.checked); setEmotion(''); }}/>
+                  <span>{t('情绪识别')}</span>
+                </label>
+              </div>
+            )}
           </div>
 
           <div>

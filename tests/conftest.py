@@ -77,7 +77,10 @@ class FakeAsrBackend(AsrBackend):
     def state(self) -> BackendReadyState:
         return BackendReadyState.READY
 
-    async def recognize(self, audio, sample_rate, language, punctuation, hotwords=None):
+    async def recognize(
+        self, audio, sample_rate, language, punctuation, hotwords=None,
+        enable_emotion=False,
+    ):
         return RecognitionResult(
             text="fake transcription",
             sentences=[{"text": "fake transcription", "start_ms": 0, "end_ms": 1000}],
@@ -85,9 +88,10 @@ class FakeAsrBackend(AsrBackend):
             processing_ms=2.0,
             rtf=0.002,
             language=language,
+            emotion="happy" if enable_emotion else None,
         )
 
-    async def create_stream(self, sample_rate, language, partial):
+    async def create_stream(self, sample_rate, language, partial, enable_emotion=False):
         return FakeAsrStream(asyncio.get_running_loop())
 
     def get_supported_languages(self) -> List[str]:
@@ -95,7 +99,7 @@ class FakeAsrBackend(AsrBackend):
 
     def get_models(self) -> List[ModelInfo]:
         return [
-            ModelInfo(id="fake", name="Fake ASR", capabilities=["streaming"], languages=["zh", "en"]),
+            ModelInfo(id="fake", name="Fake ASR", capabilities=["streaming", "emotion"], languages=["zh", "en"]),
         ]
 
 

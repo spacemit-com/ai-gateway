@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spacemit-ai-gateway"
-version = "0.1.10"
+version = "0.1.11"
 description = "SpacemiT AI Gateway - ASR/TTS/VAD HTTP API"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -25,10 +25,10 @@ dependencies = [
     "python-multipart>=0.0.26",
 
     # model_zoo wheels; OpenCV itself is provided by the system opencv-spacemit package.
-    "spacemit-asr>=1.0.0",
+    "spacemit-asr>=1.0.2",
     "spacemit-tts>=1.0.0",
     "spacemit-vad>=1.0.0",
-    "spacemit-vision>=0.1.0",
+    "spacemit-vision>=0.1.3",
     "numpy>=2.2.6",
 ]
 
