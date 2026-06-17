@@ -53,6 +53,7 @@ window.asrApi = {
     if (opts.model) form.append('model', opts.model);
     if (opts.language) form.append('language', opts.language);
     if (opts.punctuation !== undefined) form.append('punctuation', String(opts.punctuation));
+    if (opts.enable_emotion !== undefined) form.append('enable_emotion', String(opts.enable_emotion));
     if (opts.sample_rate) form.append('sample_rate', String(opts.sample_rate));
     return fetch(API_BASES.asr + '/v1/asr/recognize', { method: 'POST', body: form })
       .then(r => r.json());

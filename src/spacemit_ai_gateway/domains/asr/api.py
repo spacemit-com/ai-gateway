@@ -67,6 +67,7 @@ async def recognize(
     sample_rate: int = Form(default=0),
     punctuation: bool = Form(default=True),
     hotwords: str | None = Form(default=None),
+    enable_emotion: bool | None = Form(default=None),
     service: AsrService = Depends(get_asr_service),
     _: None = Depends(_max_upload),
     __: None = Depends(verify_api_key),
@@ -77,6 +78,7 @@ async def recognize(
         sample_rate=sample_rate,
         punctuation=punctuation,
         hotwords=hotwords,
+        enable_emotion=enable_emotion,
     )
     audio = await file.read()
     target_sample_rate = service.get_audio_config().sample_rate
@@ -138,7 +140,7 @@ async def update_params(
     body: AsrParamsPatch,
     service: AsrService = Depends(get_asr_service),
 ) -> AsrParamsResponse:
-    return service.update_params(body)
+    return await service.update_params(body)
 
 
 @router.get("/audio", response_model=AsrAudioResponse, summary="获取音频预处理配置")

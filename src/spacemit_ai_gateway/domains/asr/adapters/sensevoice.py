@@ -55,12 +55,29 @@ def _lang_from_str(language: str):
     return table.get((language or "auto").lower(), spacemit_asr.Language.AUTO)
 
 
+def _extract_emotion(raw) -> Optional[str]:
+    emotion = getattr(raw, "emotion", None)
+    if emotion:
+        return str(emotion)
+
+    sentences = getattr(raw, "sentences", None) or []
+    for sentence in sentences:
+        if isinstance(sentence, dict):
+            emotion = sentence.get("emotion")
+        else:
+            emotion = getattr(sentence, "emotion", None)
+        if emotion:
+            return str(emotion)
+    return None
+
+
 class SenseVoiceBackend(AsrBackend):
     def __init__(self, config: AsrConfig):
         self._config = config
         self._mock = False
         self._engine = None
         self._state = BackendReadyState.INITIALIZING
+        self._emotion_enabled = False
 
         model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
         asset = _get_model_asset(config.models, config.backend)
@@ -91,6 +108,13 @@ class SenseVoiceBackend(AsrBackend):
             engine_config.language = _lang_from_str(config.language)
             engine_config.punctuation_enabled = config.punctuation
             engine_config.provider = config.provider
+            if hasattr(engine_config, "enable_emotion"):
+                # Keep metadata available for per-request emotion toggles. The
+                # public response still only exposes emotion when requested.
+                engine_config.enable_emotion = True
+                self._emotion_enabled = True
+            elif config.enable_emotion:
+                raise RuntimeError("spacemit-asr>=1.0.2 is required for enable_emotion")
             self._engine = spacemit_asr.Engine(engine_config)
             self._engine.initialize()
             self._state = BackendReadyState.WARMING_UP
@@ -107,6 +131,10 @@ class SenseVoiceBackend(AsrBackend):
     @property
     def state(self) -> BackendReadyState:
         return self._state
+
+    @property
+    def emotion_enabled(self) -> bool:
+        return self._emotion_enabled and not self._mock
 
     async def warmup(self) -> None:
         if self._mock:
@@ -129,6 +157,7 @@ class SenseVoiceBackend(AsrBackend):
         language: str,
         punctuation: bool,
         hotwords: Optional[List[str]] = None,
+        enable_emotion: bool = False,
     ) -> RecognitionResult:
         if not audio:
             raise AsrInvalidAudio("empty audio payload")
@@ -157,6 +186,7 @@ class SenseVoiceBackend(AsrBackend):
             processing_ms=float(getattr(raw, "processing_time_ms", 0)),
             rtf=float(getattr(raw, "rtf", 0.0)),
             language=language,
+            emotion=_extract_emotion(raw) if enable_emotion else None,
         )
 
     async def create_stream(
@@ -164,12 +194,13 @@ class SenseVoiceBackend(AsrBackend):
         sample_rate: int,
         language: str,
         partial: bool,
+        enable_emotion: bool = False,
     ) -> AsrStreamSession:
         loop = asyncio.get_running_loop()
         if self._mock:
             return _MockStream(loop, queue_size=self._config.stream.event_queue_size)
         return _SenseVoiceStream(
-            self._engine, loop, sample_rate, language, partial,
+            self._engine, loop, sample_rate, language, partial, enable_emotion,
             queue_size=self._config.stream.event_queue_size,
         )
 
@@ -181,7 +212,7 @@ class SenseVoiceBackend(AsrBackend):
             ModelInfo(
                 id="sensevoice",
                 name="SenseVoice",
-                capabilities=["multilingual", "streaming"],
+                capabilities=["multilingual", "streaming", "emotion"],
                 languages=self.get_supported_languages(),
                 sample_rate=16000,
                 loaded=self._config.backend == "sensevoice" and self.is_ready,
@@ -194,6 +225,7 @@ class SenseVoiceBackend(AsrBackend):
             "punctuation": self._config.punctuation,
             "hotword_weight": None,
             "itn": None,
+            "enable_emotion": self._config.enable_emotion,
         }
 
     def get_audio_config(self) -> dict:
@@ -307,12 +339,22 @@ class _SenseVoiceStream(AsrStreamSession):
     - stop() 强同步：返回前 on_close 已执行完；但跨线程 enqueue 还在 loop 排队
     """
 
-    def __init__(self, engine, loop, sample_rate, language, partial, queue_size: int):
+    def __init__(
+        self,
+        engine,
+        loop,
+        sample_rate,
+        language,
+        partial,
+        enable_emotion: bool,
+        queue_size: int,
+    ):
         super().__init__(loop, queue_size=queue_size)
         self._engine = engine
         self._sample_rate = sample_rate
         self._language = language
         self._partial = partial
+        self._enable_emotion = enable_emotion
         self._started = False
         self._final_result: Optional[RecognitionResult] = None
         self._saw_final = False
@@ -339,6 +381,7 @@ class _SenseVoiceStream(AsrStreamSession):
                         getattr(result, "processing_time_ms", 0) or 0
                     )
                     rtf = float(getattr(result, "rtf", 0.0) or 0.0)
+                    emotion = _extract_emotion(result) if outer._enable_emotion else None
                 except Exception:
                     logger_bridge.debug("asr on_event parse failed", exc_info=True)
                     return
@@ -354,6 +397,7 @@ class _SenseVoiceStream(AsrStreamSession):
                         text=text,
                         duration_ms=duration_ms,
                         rtf=rtf,
+                        extra={"emotion": emotion} if emotion else {},
                     )
                 )
                 if is_final:
@@ -370,12 +414,15 @@ class _SenseVoiceStream(AsrStreamSession):
                             processing_ms=processing_ms,
                             rtf=rtf,
                             language=outer._language,
+                            emotion=emotion,
                         )
                     else:
                         outer._final_result.text += text
                         outer._final_result.duration_ms += duration_ms
                         outer._final_result.processing_ms += processing_ms
                         outer._final_result.rtf = rtf
+                        if emotion and not outer._final_result.emotion:
+                            outer._final_result.emotion = emotion
 
             def on_complete(self) -> None:
                 logger_bridge.debug("asr on_complete")
@@ -400,6 +447,9 @@ class _SenseVoiceStream(AsrStreamSession):
                             text=outer._final_result.text,
                             duration_ms=outer._final_result.duration_ms,
                             rtf=outer._final_result.rtf,
+                            extra={"emotion": outer._final_result.emotion}
+                            if outer._final_result.emotion
+                            else {},
                         )
                     )
                 outer._loop.call_soon_threadsafe(outer._close_event.set)

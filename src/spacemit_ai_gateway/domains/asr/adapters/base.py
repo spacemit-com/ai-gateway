@@ -36,6 +36,7 @@ class RecognitionResult:
     processing_ms: float = 0.0
     rtf: float = 0.0
     language: Optional[str] = None
+    emotion: Optional[str] = None
 
 
 @dataclass
@@ -103,6 +104,7 @@ class AsrBackend(ABC):
         language: str,
         punctuation: bool,
         hotwords: Optional[List[str]] = None,
+        enable_emotion: bool = False,
     ) -> RecognitionResult: ...
 
     @abstractmethod
@@ -111,6 +113,7 @@ class AsrBackend(ABC):
         sample_rate: int,
         language: str,
         partial: bool,
+        enable_emotion: bool = False,
     ) -> AsrStreamSession: ...
 
     @abstractmethod

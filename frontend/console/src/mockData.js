@@ -6,12 +6,14 @@ window.MODEL_CATALOG = {
     {
       id: 'sensevoice', name: 'SenseVoice', icon: 'mic', domain: 'asr',
       desc: '多语种语音理解模型，支持语音识别、情感识别等能力。',
+      capabilities: ['multilingual', 'streaming', 'emotion'],
       meta: [['模型类型', '语音识别'], ['语言支持', '多语种']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
     {
       id: 'qwen3-asr', name: 'Qwen3-ASR', icon: 'mic', domain: 'asr',
       desc: 'Qwen3 语音识别模型，支持多语种。',
+      capabilities: ['multilingual'],
       meta: [['模型类型', '语音识别'], ['特点', 'LLM-based']],
       status: 'idle', calls: 0, latencyMs: 0,
     },
@@ -339,6 +341,9 @@ window.initModelCatalog = async function() {
           id: m.id, name: m.name || m.id, icon: 'mic', domain: 'asr',
           desc: 'ASR · ' + (m.languages || []).join('/'),
           meta: [['类型', '语音识别'], ['语言', (m.languages || []).join(', ') || '-']],
+          capabilities: m.capabilities || [],
+          languages: m.languages || [],
+          sample_rate: m.sample_rate || 16000,
           status: m.loaded ? 'ready' : 'idle', calls: 0, latencyMs: 0,
         };
       }),

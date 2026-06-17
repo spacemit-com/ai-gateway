@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 _ASR_MODEL_INFO = {
     "sensevoice": {
         "name": "SenseVoice",
-        "capabilities": ["multilingual", "streaming"],
+        "capabilities": ["multilingual", "streaming", "emotion"],
         "languages": ["zh", "en", "ja", "ko", "yue", "auto"],
         "sample_rate": 16000,
     },
@@ -120,41 +120,84 @@ class AsrService:
     def _model_id(self, model: Optional[str] = None) -> str:
         return model or self._default
 
+    def _model_supports_emotion(self, model: Optional[str] = None) -> bool:
+        name = self._model_id(model)
+        backend = self._backends.get(name)
+        if backend is not None:
+            models = backend.get_models()
+            for item in models:
+                if item.id == name:
+                    return "emotion" in (item.capabilities or [])
+            if len(models) == 1:
+                return "emotion" in (models[0].capabilities or [])
+        info = _ASR_MODEL_INFO.get(name, {})
+        return "emotion" in info.get("capabilities", [])
+
+    def _effective_enable_emotion(
+        self,
+        requested: Optional[bool],
+        model: Optional[str] = None,
+    ) -> bool:
+        if requested is None:
+            requested = bool(self._config.enable_emotion)
+        return bool(requested) and self._model_supports_emotion(model)
+
     async def _shutdown_loaded_backends(self) -> None:
         for name, backend in list(self._backends.items()):
             logger.info("unloading ASR backend '%s' before loading another model", name)
             self._backends.pop(name, None)
             await backend.shutdown()
 
-    async def _ensure_backend(self, model: Optional[str] = None) -> AsrBackend:
+    async def _ensure_backend_locked(
+        self,
+        model: Optional[str] = None,
+        *,
+        force_reload: bool = False,
+    ) -> AsrBackend:
         name = self._model_id(model)
+        existing = self._backends.get(name)
+        if (
+            existing is not None
+            and existing.state.is_serving
+            and not force_reload
+        ):
+            return existing
+
+        if name not in self._allowed_backends:
+            raise ModelUnknown(
+                f"model '{name}' not allowed",
+                details={"available": self._allowed_backends},
+            )
+
+        cls = ASR_REGISTRY.get(name)
+        if cls is None:
+            raise ModelUnknown(
+                f"model '{name}' not registered",
+                details={"available": self._allowed_backends},
+            )
+
+        await self._shutdown_loaded_backends()
+        cfg_updates = {"backend": name}
+        cfg = self._config.model_copy(update=cfg_updates)
+        logger.info("loading ASR backend '%s' on demand", name)
+        backend = cls(cfg)
+        await backend.warmup()
+        self._backends[name] = backend
+        self._default = name
+        await self._sync_hotwords_to_backends()
+        return backend
+
+    async def _ensure_backend(
+        self,
+        model: Optional[str] = None,
+        *,
+        force_reload: bool = False,
+    ) -> AsrBackend:
         async with self._load_lock:
-            existing = self._backends.get(name)
-            if existing is not None and existing.state.is_serving:
-                return existing
-
-            if name not in self._allowed_backends:
-                raise ModelUnknown(
-                    f"model '{name}' not allowed",
-                    details={"available": self._allowed_backends},
-                )
-
-            cls = ASR_REGISTRY.get(name)
-            if cls is None:
-                raise ModelUnknown(
-                    f"model '{name}' not registered",
-                    details={"available": self._allowed_backends},
-                )
-
-            await self._shutdown_loaded_backends()
-            cfg = self._config.model_copy(update={"backend": name})
-            logger.info("loading ASR backend '%s' on demand", name)
-            backend = cls(cfg)
-            await backend.warmup()
-            self._backends[name] = backend
-            self._default = name
-            await self._sync_hotwords_to_backends()
-            return backend
+            return await self._ensure_backend_locked(
+                model,
+                force_reload=force_reload,
+            )
 
     def _get_backend(self, model: Optional[str] = None) -> AsrBackend:
         name = model or self._default
@@ -169,6 +212,9 @@ class AsrService:
     async def recognize(
         self, audio: bytes, params: RecognizeParams
     ) -> RecognizeResponse:
+        enable_emotion = self._effective_enable_emotion(
+            params.enable_emotion, params.model
+        )
         backend = await self._ensure_backend(params.model)
         hotwords = (
             [w.strip() for w in params.hotwords.split(",") if w.strip()]
@@ -183,6 +229,7 @@ class AsrService:
                 language=params.language,
                 punctuation=params.punctuation,
                 hotwords=hotwords,
+                enable_emotion=enable_emotion,
             )
         except Exception:
             self._stats["total_errors"] += 1
@@ -197,6 +244,7 @@ class AsrService:
     async def create_stream_session(
         self, req: StreamSessionRequest
     ) -> StreamSessionResponse:
+        enable_emotion = self._effective_enable_emotion(req.enable_emotion, req.model)
         await self._ensure_backend(req.model)
         record = await self._sessions.create(
             data={
@@ -206,6 +254,7 @@ class AsrService:
                 "language": req.language,
                 "partial_results": req.partial_results,
                 "client_id": req.client_id,
+                "enable_emotion": enable_emotion,
             }
         )
         expires_at = datetime.fromtimestamp(
@@ -225,6 +274,7 @@ class AsrService:
         language: str,
         sample_rate: int,
         partial: bool,
+        enable_emotion: Optional[bool] = None,
     ) -> AsrStreamSession:
         if not session_id:
             raise InvalidSessionError("missing session_id; POST /stream/session first")
@@ -232,7 +282,14 @@ class AsrService:
         if record is None:
             raise InvalidSessionError("session_id expired or invalid")
 
-        backend = await self._ensure_backend(record.data.get("model"))
+        stream_model = record.data.get("model")
+        effective_emotion = self._effective_enable_emotion(
+            enable_emotion
+            if enable_emotion is not None
+            else record.data.get("enable_emotion"),
+            stream_model,
+        )
+        backend = await self._ensure_backend(stream_model)
 
         effective_sr = sample_rate or int(record.data.get("sample_rate", 16000))
         effective_lang = language or str(record.data.get("language", "auto"))
@@ -244,6 +301,7 @@ class AsrService:
             sample_rate=effective_sr,
             language=effective_lang,
             partial=effective_partial,
+            enable_emotion=effective_emotion,
         )
 
     def get_models(self) -> List[ModelInfo]:
@@ -297,16 +355,38 @@ class AsrService:
             "punctuation": self._config.punctuation if self._config else True,
             "hotword_weight": None,
             "itn": None,
+            "enable_emotion": self._effective_enable_emotion(None, self._default),
         }
         return AsrParamsResponse(**data)
 
-    def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
-        cfg = self._backends[self._default]._config if self._default in self._backends else self._config
-        if patch.language is not None:
-            cfg.language = patch.language
-        if patch.punctuation is not None:
-            cfg.punctuation = patch.punctuation
-        return self.get_params()
+    async def update_params(self, patch: AsrParamsPatch) -> AsrParamsResponse:
+        async with self._load_lock:
+            backend = self._backends.get(self._default)
+            cfg_targets = [self._config]
+            backend_config = getattr(backend, "_config", None)
+            if backend_config is not None and backend_config is not self._config:
+                cfg_targets.append(backend_config)
+
+            for cfg in cfg_targets:
+                if patch.language is not None:
+                    cfg.language = patch.language
+                if patch.punctuation is not None:
+                    cfg.punctuation = patch.punctuation
+                if patch.enable_emotion is not None:
+                    cfg.enable_emotion = patch.enable_emotion
+
+            if patch.enable_emotion is not None:
+                effective = self._effective_enable_emotion(
+                    patch.enable_emotion, self._default
+                )
+                if backend is not None and self._model_supports_emotion(self._default):
+                    current = bool(getattr(backend, "emotion_enabled", False))
+                    if effective and not current:
+                        await self._ensure_backend_locked(
+                            self._default,
+                            force_reload=True,
+                        )
+            return self.get_params()
 
     # ---- audio ----
 
@@ -394,8 +474,11 @@ class AsrService:
     # ---- jobs ----
 
     async def submit_job(self, req: JobSubmitRequest) -> JobSubmitResponse:
+        enable_emotion = self._effective_enable_emotion(req.enable_emotion, req.model)
         await self._ensure_backend(req.model)
-        record = await self._job_store.create(data=req.model_dump())
+        data = req.model_dump()
+        data["enable_emotion"] = enable_emotion
+        record = await self._job_store.create(data=data)
         asyncio.create_task(self._run_job(record.task_id))
         return JobSubmitResponse(job_id=record.task_id, status="PENDING")
 
@@ -428,12 +511,16 @@ class AsrService:
             if record is None or record.status == TaskStatus.CANCELLED:
                 return
 
+            enable_emotion = self._effective_enable_emotion(
+                data.get("enable_emotion"), data.get("model")
+            )
             backend = await self._ensure_backend(data.get("model"))
             result = await backend.recognize(
                 audio=normalized.pcm,
                 sample_rate=normalized.sample_rate,
                 language=data.get("language", "auto"),
                 punctuation=True,
+                enable_emotion=enable_emotion,
             )
             response = _result_to_response(result)
             await self._job_store.update(
@@ -528,4 +615,5 @@ def _result_to_response(result: RecognitionResult) -> RecognizeResponse:
         processing_ms=result.processing_ms,
         rtf=result.rtf,
         language=result.language,
+        emotion=result.emotion,
     )
