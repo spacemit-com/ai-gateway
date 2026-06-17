@@ -89,7 +89,6 @@ class Qwen3AsrBackend(AsrBackend):
         language: str,
         punctuation: bool,
         hotwords: Optional[List[str]] = None,
-        enable_emotion: bool = False,
     ) -> RecognitionResult:
         if not audio:
             raise AsrInvalidAudio("empty audio payload")
@@ -165,7 +164,6 @@ class Qwen3AsrBackend(AsrBackend):
         sample_rate: int,
         language: str,
         partial: bool,
-        enable_emotion: bool = False,
     ) -> AsrStreamSession:
         loop = asyncio.get_running_loop()
         return _Qwen3BufferedStream(
@@ -196,7 +194,6 @@ class Qwen3AsrBackend(AsrBackend):
             "punctuation": True,
             "hotword_weight": None,
             "itn": None,
-            "enable_emotion": False,
         }
 
     def get_audio_config(self) -> dict:

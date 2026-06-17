@@ -66,7 +66,6 @@ class AsrConfig(BaseModel):
     language: str = "auto"
     punctuation: bool = True
     provider: str = "spacemit"
-    enable_emotion: bool = False
     warmup_audio_ms: int = 1000
     qwen3: AsrQwen3Config = Field(default_factory=AsrQwen3Config)
     stream: AsrStreamConfig = Field(default_factory=AsrStreamConfig)
