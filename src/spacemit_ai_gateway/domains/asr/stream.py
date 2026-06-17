@@ -50,7 +50,6 @@ class AsrStreamHandler:
         language: str,
         sample_rate: int,
         partial: bool,
-        enable_emotion: Optional[bool],
     ) -> None:
         await ws.accept()
 
@@ -59,7 +58,6 @@ class AsrStreamHandler:
             language=language,
             sample_rate=sample_rate,
             partial=partial,
-            enable_emotion=enable_emotion,
         )
         await session.start()
 
@@ -120,7 +118,6 @@ async def stream_recognize(
     language: str = Query(default="auto"),
     sample_rate: int = Query(default=16000),
     partial: bool = Query(default=True),
-    enable_emotion: Optional[bool] = Query(default=None),
     handler: AsrStreamHandler = Depends(get_asr_stream_handler),
 ):
     await handler.handle(
@@ -129,5 +126,4 @@ async def stream_recognize(
         language=language,
         sample_rate=sample_rate,
         partial=partial,
-        enable_emotion=enable_emotion,
     )
