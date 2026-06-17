@@ -235,6 +235,42 @@ async def test_request_emotion_true_does_not_reload_backend(monkeypatch):
     assert ReloadableSenseVoiceBackend.shutdown_count == 0
 
 
+async def test_request_emotion_after_preload_without_metadata_does_not_reload_backend(
+    monkeypatch,
+):
+    monkeypatch.setitem(
+        service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend
+    )
+    ReloadableSenseVoiceBackend.shutdown_count = 0
+    config = AsrConfig(
+        backend="sensevoice",
+        backends=["sensevoice"],
+        enable_emotion=False,
+    )
+    existing = ReloadableSenseVoiceBackend(config)
+    existing._emotion_enabled = False
+    service = AsrService(
+        {"sensevoice": existing},
+        "sensevoice",
+        SessionStore(ttl_seconds=60, namespace="asr-request-emotion-preload"),
+        config=config,
+    )
+
+    resp = await service.recognize(
+        b"\x00" * 16000,
+        RecognizeParams(
+            model="sensevoice",
+            language="zh",
+            sample_rate=16000,
+            enable_emotion=True,
+        ),
+    )
+
+    assert resp.emotion == "happy"
+    assert service._backends["sensevoice"] is existing
+    assert ReloadableSenseVoiceBackend.shutdown_count == 0
+
+
 async def test_update_params_reloads_loaded_backend_for_emotion(monkeypatch):
     monkeypatch.setitem(
         service_module.ASR_REGISTRY, "sensevoice", ReloadableSenseVoiceBackend

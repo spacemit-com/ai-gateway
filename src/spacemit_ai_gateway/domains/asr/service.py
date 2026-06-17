@@ -379,7 +379,11 @@ class AsrService:
                 effective = self._effective_enable_emotion(
                     patch.enable_emotion, self._default
                 )
-                if backend is not None and self._model_supports_emotion(self._default):
+                if (
+                    backend is not None
+                    and self._model_supports_emotion(self._default)
+                    and not self._engine_pending_restart
+                ):
                     current = bool(getattr(backend, "emotion_enabled", False))
                     if effective and not current:
                         await self._ensure_backend_locked(
