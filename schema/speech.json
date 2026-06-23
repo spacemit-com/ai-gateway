@@ -27,8 +27,8 @@
       "experienceKind": "audio",
       "title": "SenseVoice",
       "titleEn": "SenseVoice",
-      "description": "多语种语音理解模型，支持语音识别，并具备语言识别、情感识别等能力。",
-      "descriptionEn": "A multilingual speech understanding model supporting ASR, language identification, and emotion recognition.",
+      "description": "多语种语音理解模型，支持语音识别。",
+      "descriptionEn": "A multilingual speech understanding model supporting ASR.",
       "meta": {
         "模型类型": "语音识别",
         "语音支持": "多语种"
