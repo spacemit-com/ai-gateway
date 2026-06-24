@@ -22,6 +22,27 @@ def _project_version() -> str:
     return match.group(1)
 
 
+def _package_version() -> str:
+    text = (ROOT / "src/spacemit_ai_gateway/__init__.py").read_text()
+    match = re.search(r"^__version__ = \"([^\"]+)\"", text, re.MULTILINE)
+    assert match is not None
+    return match.group(1)
+
+
+def _settings_default_version() -> str:
+    text = (ROOT / "src/spacemit_ai_gateway/app/settings.py").read_text()
+    match = re.search(r"version: str = \"([^\"]+)\"", text)
+    assert match is not None
+    return match.group(1)
+
+
+def _config_version(path: str) -> str:
+    text = (ROOT / path).read_text()
+    match = re.search(r"^  version: \"([^\"]+)\"", text, re.MULTILINE)
+    assert match is not None
+    return match.group(1)
+
+
 def _runtime_pins() -> dict[str, str]:
     pins = {}
     for line in (ROOT / "requirements-runtime.txt").read_text().splitlines():
@@ -38,6 +59,18 @@ def _runtime_pins() -> dict[str, str]:
 
 def test_gateway_runtime_pin_matches_project_version() -> None:
     assert _runtime_pins()["spacemit-ai-gateway"] == _project_version()
+
+
+def test_gateway_package_version_matches_project_version() -> None:
+    project_version = _project_version()
+    assert _package_version() == project_version
+
+
+def test_gateway_runtime_config_versions_match_project_version() -> None:
+    project_version = _project_version()
+    assert _settings_default_version() == project_version
+    assert _config_version("src/spacemit_ai_gateway/configs/base.yaml") == project_version
+    assert _config_version("configs/base.yaml") == project_version
 
 
 def test_spacemit_runtime_wheels_are_exact_pinned() -> None:

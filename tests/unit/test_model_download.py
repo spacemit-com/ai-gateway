@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from spacemit_ai_gateway.app.settings import AsrConfig, TtsConfig
+from spacemit_ai_gateway.common.errors import TtsBackendUnavailable
 from spacemit_ai_gateway.common.model_download import (
     ensure_archive_model,
     ensure_remote_file,
@@ -249,6 +250,93 @@ async def test_matcha_warmup_runs_synthesis(monkeypatch, tmp_path):
     assert backend.state == BackendReadyState.READY
     assert len(engine_instances) == 1
     assert engine_instances[0].synthesize_calls == ["你好"]
+
+
+@pytest.mark.asyncio
+async def test_matcha_shutdown_releases_engine(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    class FakeConfig:
+        def __init__(self):
+            self.model_dir = None
+            self.sample_rate = 16000
+            self.speed = 1.0
+
+        @classmethod
+        def preset(cls, backend):
+            return cls()
+
+    class FakeResult:
+        is_success = True
+        message = "ok"
+
+    class FakeEngine:
+        def __init__(self, config):
+            self.config = config
+
+        def synthesize(self, text):
+            return FakeResult()
+
+    fake_spacemit_tts = SimpleNamespace(Config=FakeConfig, Engine=FakeEngine)
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setitem(sys.modules, "spacemit_tts", fake_spacemit_tts)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+
+    await backend.warmup()
+    await backend.shutdown()
+
+    assert backend.state == BackendReadyState.IDLE
+    assert backend._engine is None
+    with pytest.raises(TtsBackendUnavailable):
+        await backend.synthesize("你好", None, 1.0, 1.0, 1.0)
+
+
+@pytest.mark.asyncio
+async def test_kokoro_shutdown_releases_engine(monkeypatch):
+    from spacemit_ai_gateway.domains.tts.adapters import kokoro
+
+    class FakeConfig:
+        def __init__(self):
+            self.sample_rate = 24000
+            self.speed = 1.0
+
+        @classmethod
+        def preset(cls, backend):
+            return cls()
+
+    class FakeResult:
+        is_success = True
+        message = "ok"
+        audio_int16 = np.zeros(10, dtype=np.int16)
+        sample_rate = 24000
+        duration_ms = 1.0
+        processing_time_ms = 1.0
+        rtf = 1.0
+
+    class FakeEngine:
+        def __init__(self, config):
+            self.config = config
+
+        def synthesize(self, text):
+            return FakeResult()
+
+    fake_spacemit_tts = SimpleNamespace(Config=FakeConfig, Engine=FakeEngine)
+
+    monkeypatch.setitem(sys.modules, "spacemit_tts", fake_spacemit_tts)
+
+    backend = kokoro.KokoroBackend(TtsConfig(backend="kokoro"))
+
+    await backend.warmup()
+    await backend.shutdown()
+
+    assert backend.state == BackendReadyState.IDLE
+    assert backend._engine is None
+    with pytest.raises(TtsBackendUnavailable):
+        await backend.synthesize("你好", None, 1.0, 1.0, 1.0)
 
 
 def test_matcha_assets_expect_quantized_models():

@@ -108,41 +108,48 @@ class TtsService:
     def _model_id(self, model: Optional[str] = None) -> str:
         return model or self._default
 
-    async def _shutdown_loaded_backends(self) -> None:
+    async def _shutdown_loaded_backends_locked(self) -> None:
         for name, backend in list(self._backends.items()):
             logger.info("unloading TTS backend '%s' before loading another model", name)
             self._backends.pop(name, None)
             await backend.shutdown()
 
     async def _ensure_backend(self, model: Optional[str] = None) -> TtsBackend:
-        name = self._model_id(model)
         async with self._load_lock:
-            existing = self._backends.get(name)
-            if existing is not None and existing.state.is_serving:
-                return existing
+            return await self._ensure_backend_locked(model)
 
-            if name not in self._allowed_backends:
-                raise ModelUnknown(
-                    f"model '{name}' not allowed",
-                    details={"available": self._allowed_backends},
-                )
+    async def _ensure_backend_locked(self, model: Optional[str] = None) -> TtsBackend:
+        name = self._model_id(model)
+        existing = self._backends.get(name)
+        if existing is not None and existing.state.is_serving:
+            return existing
 
-            cls = TTS_REGISTRY.get(name)
-            if cls is None:
-                raise ModelUnknown(
-                    f"model '{name}' not registered",
-                    details={"available": self._allowed_backends},
-                )
+        if name not in self._allowed_backends:
+            raise ModelUnknown(
+                f"model '{name}' not allowed",
+                details={"available": self._allowed_backends},
+            )
 
-            await self._shutdown_loaded_backends()
-            cfg = self._tts_config.model_copy(update={"backend": name})
-            logger.info("loading TTS backend '%s' on demand", name)
-            backend = cls(cfg)
-            await backend.warmup()
-            self._backends[name] = backend
-            self._default = name
-            await self._sync_lexicon_to_backends()
-            return backend
+        cls = TTS_REGISTRY.get(name)
+        if cls is None:
+            raise ModelUnknown(
+                f"model '{name}' not registered",
+                details={"available": self._allowed_backends},
+            )
+
+        await self._shutdown_loaded_backends_locked()
+        cfg = self._tts_config.model_copy(update={"backend": name})
+        logger.info("loading TTS backend '%s' on demand", name)
+        backend = cls(cfg)
+        await backend.warmup()
+        self._backends[name] = backend
+        self._default = name
+        await self._sync_lexicon_to_backends_locked()
+        return backend
+
+    async def _shutdown_loaded_backends(self) -> None:
+        async with self._load_lock:
+            await self._shutdown_loaded_backends_locked()
 
     def _get_backend(self, model: Optional[str] = None) -> TtsBackend:
         name = model or self._default
@@ -158,8 +165,9 @@ class TtsService:
         self, req: SynthesizeRequest
     ) -> tuple[bytes, str, dict]:
         """返回 (audio_bytes, content_type, metadata)。"""
-        backend = await self._ensure_backend(req.model)
         try:
+            async with self._load_lock:
+                backend = await self._ensure_backend_locked(req.model)
             result = await backend.synthesize(
                 text=req.text,
                 voice_id=req.voice_id,
@@ -220,9 +228,10 @@ class TtsService:
         if record is None:
             raise InvalidSessionError("session_id expired or invalid")
 
-        backend = await self._ensure_backend(record.data.get("model"))
         effective_voice = voice_id or record.data.get("voice_id")
         speed = float(record.data.get("speed", 1.0))
+        async with self._load_lock:
+            backend = await self._ensure_backend_locked(record.data.get("model"))
         return await backend.open_stream(
             voice_id=effective_voice, speed=speed
         )
@@ -338,25 +347,28 @@ class TtsService:
     # ---- model management ----
 
     async def load_model(self, model_id: str) -> dict:
-        existing = self._backends.get(model_id)
-        if existing is not None and existing.state == BackendReadyState.READY:
-            raise ModelAlreadyLoaded(f"model '{model_id}' already loaded")
-        backend = await self._ensure_backend(model_id)
+        async with self._load_lock:
+            existing = self._backends.get(model_id)
+            if existing is not None and existing.state == BackendReadyState.READY:
+                raise ModelAlreadyLoaded(f"model '{model_id}' already loaded")
+            backend = await self._ensure_backend_locked(model_id)
         return {"loaded": True, "model_id": model_id, "state": backend.state.value}
 
     async def unload_model(self, model_id: str) -> dict:
-        if model_id not in self._backends:
-            raise ModelNotLoaded(
-                f"model '{model_id}' not loaded",
-                details={"available": list(self._backends.keys())},
-            )
-        backend = self._backends.pop(model_id)
-        await backend.shutdown()
+        async with self._load_lock:
+            if model_id not in self._backends:
+                raise ModelNotLoaded(
+                    f"model '{model_id}' not loaded",
+                    details={"available": list(self._backends.keys())},
+                )
+            backend = self._backends.pop(model_id)
+            await backend.shutdown()
         return {"unloaded": True, "model_id": model_id}
 
     async def switch_default(self, model_id: str) -> dict:
-        await self._ensure_backend(model_id)
-        self._default = model_id
+        async with self._load_lock:
+            await self._ensure_backend_locked(model_id)
+            self._default = model_id
         return {"switched": True, "default_model_id": model_id}
 
     async def shutdown(self) -> None:
@@ -378,7 +390,8 @@ class TtsService:
                 return
             data = record.data
 
-            backend = await self._ensure_backend(data.get("model"))
+            async with self._load_lock:
+                backend = await self._ensure_backend_locked(data.get("model"))
             result = await backend.synthesize(
                 text=data["text"],
                 voice_id=data.get("voice_id"),
@@ -467,6 +480,10 @@ class TtsService:
         return deleted
 
     async def _sync_lexicon_to_backends(self) -> None:
+        async with self._load_lock:
+            await self._sync_lexicon_to_backends_locked()
+
+    async def _sync_lexicon_to_backends_locked(self) -> None:
         records = await self._lexicon_store.list_all()
         all_entries: list[dict] = []
         for r in records:
@@ -474,9 +491,15 @@ class TtsService:
                 if entry.get("word") and entry.get("phoneme"):
                     all_entries.append(entry)
         for backend in self._backends.values():
-            engine = getattr(backend, "_engine", None)
-            if engine and hasattr(engine, "update_lexicon") and not getattr(backend, "_mock", False):
-                try:
-                    await asyncio.to_thread(engine.update_lexicon, all_entries)
-                except Exception:
-                    pass
+            updater = getattr(backend, "update_lexicon", None)
+            if updater is None or getattr(backend, "_mock", False):
+                continue
+            try:
+                await updater(all_entries)
+            except Exception:
+                backend_name = getattr(backend, "backend_name", type(backend).__name__)
+                logger.warning(
+                    "failed to sync TTS lexicon to backend '%s'",
+                    backend_name,
+                    exc_info=True,
+                )

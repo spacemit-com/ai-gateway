@@ -99,6 +99,8 @@ class MatchaBackend(TtsBackend):
         self._config = config
         self._mock = False
         self._engine = None
+        self._engine_lock = asyncio.Lock()
+        self._closed = False
         self._engine_sample_rate = (
             config.sample_rate
             or _DEFAULT_SAMPLE_RATES.get(config.backend, 22050)
@@ -154,7 +156,9 @@ class MatchaBackend(TtsBackend):
             self._state = BackendReadyState.READY
             return
         text = _WARMUP_TEXT.get(self._config.backend, "hello")
-        raw = await asyncio.to_thread(self._engine.synthesize, text)
+        async with self._engine_lock:
+            engine = self._require_engine()
+            raw = await self._run_engine_call(engine.synthesize, text)
         if not raw.is_success:
             raise TtsBackendUnavailable(
                 f"warmup failed: {getattr(raw, 'message', 'unknown error')}"
@@ -172,11 +176,13 @@ class MatchaBackend(TtsBackend):
         if not text or not text.strip():
             raise TtsInvalidText("empty text")
 
-        if self._mock:
+        if self._mock and not self._closed:
             return _mock_result(text, self.sample_rate)
 
         try:
-            raw = await asyncio.to_thread(self._engine.synthesize, text)
+            async with self._engine_lock:
+                engine = self._require_engine()
+                raw = await self._run_engine_call(engine.synthesize, text)
         except Exception as e:
             logger.exception("TTS synthesize failed")
             raise TtsBackendUnavailable(str(e)) from e
@@ -198,12 +204,14 @@ class MatchaBackend(TtsBackend):
         self, voice_id: Optional[str], speed: float
     ) -> TtsStreamSession:
         loop = asyncio.get_running_loop()
-        if self._mock:
+        if self._mock and not self._closed:
             return _MockTtsStream(
                 loop, self.sample_rate, self._config.stream.event_queue_size
             )
+        async with self._engine_lock:
+            self._require_engine()
         return _MatchaStream(
-            self._engine, loop, self.sample_rate, self._config.stream.event_queue_size
+            self, loop, self.sample_rate, self._config.stream.event_queue_size
         )
 
     def get_voices(self) -> List[VoiceInfo]:
@@ -238,6 +246,36 @@ class MatchaBackend(TtsBackend):
             "sample_rate": self._engine_sample_rate,
             "cache_policy": None,
         }
+
+    async def update_lexicon(self, entries: list[dict]) -> None:
+        if self._mock or self._closed:
+            return
+        async with self._engine_lock:
+            engine = self._require_engine()
+            await self._run_engine_call(engine.update_lexicon, entries)
+
+    async def shutdown(self) -> None:
+        async with self._engine_lock:
+            self._closed = True
+            self._state = BackendReadyState.IDLE
+            self._mock = False
+            self._engine = None
+
+    def _require_engine(self):
+        if self._closed or self._engine is None:
+            raise TtsBackendUnavailable("TTS backend is not loaded")
+        return self._engine
+
+    async def _run_engine_call(self, func, *args):
+        task = asyncio.create_task(asyncio.to_thread(func, *args))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            except Exception:
+                logger.debug("TTS native call failed after cancellation", exc_info=True)
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -323,9 +361,9 @@ class _MatchaStream(TtsStreamSession):
     seq / total_ms / last_rtf 跨 send_text 累加，每轮新建一个 bridge。
     """
 
-    def __init__(self, engine, loop, sample_rate: int, queue_size: int):
+    def __init__(self, backend: MatchaBackend, loop, sample_rate: int, queue_size: int):
         super().__init__(loop, queue_size=queue_size)
-        self._engine = engine
+        self._backend = backend
         self._sample_rate = sample_rate
         self._seq = 0
         self._total_ms = 0.0
@@ -340,9 +378,11 @@ class _MatchaStream(TtsStreamSession):
             return
         bridge = self._make_bridge()
         try:
-            await asyncio.to_thread(
-                self._engine.synthesize_streaming, text, bridge
-            )
+            async with self._backend._engine_lock:
+                engine = self._backend._require_engine()
+                await self._backend._run_engine_call(
+                    engine.synthesize_streaming, text, bridge
+                )
         except Exception as e:
             logger.exception("matcha stream synth failed")
             raise TtsBackendUnavailable(str(e)) from e

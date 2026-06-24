@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+
+import numpy as np
 import pytest
 
 from spacemit_ai_gateway.app.settings import TtsConfig
 from spacemit_ai_gateway.common.errors import InvalidSessionError, ModelUnknown
+from spacemit_ai_gateway.common.ready_state import BackendReadyState
+from spacemit_ai_gateway.common.schemas import ModelInfo, VoiceInfo
 from spacemit_ai_gateway.common.sessions import SessionStore
+from spacemit_ai_gateway.domains.tts.adapters.base import TtsBackend, TtsResult
 from spacemit_ai_gateway.domains.tts.schemas import StreamSessionRequest, SynthesizeRequest
 from spacemit_ai_gateway.domains.tts.service import TtsService
 
@@ -68,3 +74,149 @@ async def test_load_rejects_unconfigured_backend():
         await service.load_model("kokoro")
 
     assert exc_info.value.details == {"available": ["matcha_zh_en"]}
+
+
+class _BlockingTtsBackend(TtsBackend):
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.shutdown_called = False
+        self.engine_lock = asyncio.Lock()
+
+    @property
+    def backend_name(self) -> str:
+        return "blocking-tts"
+
+    @property
+    def sample_rate(self) -> int:
+        return 22050
+
+    @property
+    def state(self) -> BackendReadyState:
+        return BackendReadyState.READY
+
+    async def synthesize(self, text, voice_id, speed, pitch, volume) -> TtsResult:
+        async with self.engine_lock:
+            self.started.set()
+            await self.release.wait()
+            return TtsResult(
+                audio=np.zeros(22050, dtype=np.int16),
+                sample_rate=22050,
+                duration_ms=1000.0,
+                processing_ms=2.0,
+                rtf=0.002,
+            )
+
+    async def open_stream(self, voice_id, speed):
+        raise NotImplementedError
+
+    def get_voices(self) -> list[VoiceInfo]:
+        return [VoiceInfo(id="default", name="Blocking", language="zh")]
+
+    def get_models(self) -> list[ModelInfo]:
+        return [
+            ModelInfo(
+                id="blocking",
+                name="Blocking TTS",
+                capabilities=["tts"],
+                languages=["zh"],
+            )
+        ]
+
+    async def shutdown(self) -> None:
+        async with self.engine_lock:
+            self.shutdown_called = True
+
+
+class _ConcurrentTtsBackend(TtsBackend):
+    def __init__(self):
+        self.started_count = 0
+        self.both_started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    @property
+    def backend_name(self) -> str:
+        return "concurrent-tts"
+
+    @property
+    def sample_rate(self) -> int:
+        return 22050
+
+    @property
+    def state(self) -> BackendReadyState:
+        return BackendReadyState.READY
+
+    async def synthesize(self, text, voice_id, speed, pitch, volume) -> TtsResult:
+        self.started_count += 1
+        if self.started_count == 2:
+            self.both_started.set()
+        await self.release.wait()
+        return TtsResult(
+            audio=np.zeros(22050, dtype=np.int16),
+            sample_rate=22050,
+            duration_ms=1000.0,
+            processing_ms=2.0,
+            rtf=0.002,
+        )
+
+    async def open_stream(self, voice_id, speed):
+        raise NotImplementedError
+
+    def get_voices(self) -> list[VoiceInfo]:
+        return [VoiceInfo(id="default", name="Concurrent", language="zh")]
+
+    def get_models(self) -> list[ModelInfo]:
+        return [
+            ModelInfo(
+                id="concurrent",
+                name="Concurrent TTS",
+                capabilities=["tts"],
+                languages=["zh"],
+            )
+        ]
+
+    async def shutdown(self) -> None:
+        return None
+
+
+async def test_synthesize_does_not_hold_load_lock_during_backend_call():
+    backend = _ConcurrentTtsBackend()
+    service = TtsService(
+        {"concurrent": backend},
+        "concurrent",
+        SessionStore(ttl_seconds=60, namespace="tts-concurrent-synth"),
+    )
+
+    first = asyncio.create_task(service.synthesize(SynthesizeRequest(text="你好")))
+    second = asyncio.create_task(service.synthesize(SynthesizeRequest(text="世界")))
+    await asyncio.wait_for(backend.both_started.wait(), timeout=1.0)
+
+    backend.release.set()
+    await first
+    await second
+
+    assert backend.started_count == 2
+
+
+async def test_unload_waits_for_inflight_synthesis():
+    backend = _BlockingTtsBackend()
+    service = TtsService(
+        {"blocking": backend},
+        "blocking",
+        SessionStore(ttl_seconds=60, namespace="tts-unload-waits"),
+    )
+
+    synth_task = asyncio.create_task(service.synthesize(SynthesizeRequest(text="你好")))
+    await backend.started.wait()
+
+    unload_task = asyncio.create_task(service.unload_model("blocking"))
+    await asyncio.sleep(0)
+
+    assert not unload_task.done()
+    assert backend.shutdown_called is False
+
+    backend.release.set()
+    await synth_task
+    await unload_task
+
+    assert backend.shutdown_called is True
