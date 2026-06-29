@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import tarfile
 from pathlib import Path
@@ -162,7 +163,7 @@ def test_sensevoice_resamples_pcm_to_model_rate():
     assert prepared[-1] == samples[-1]
 
 
-def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
+def test_tts_model_check_runs_before_worker_start(monkeypatch, tmp_path):
     from spacemit_ai_gateway.domains.tts.adapters import matcha
 
     calls = []
@@ -179,7 +180,8 @@ def test_tts_model_check_runs_before_sdk_import(monkeypatch, tmp_path):
     assert calls
     assert calls[0][0] == "matcha_zh_en"
     assert calls[0][1] == tmp_path / "tts" / "matcha-tts"
-    assert backend.state == BackendReadyState.DEGRADED
+    assert backend.state == BackendReadyState.WARMING_UP
+    assert backend._worker is not None
 
 
 def test_tts_startup_loads_only_default_backend(monkeypatch):
@@ -207,39 +209,25 @@ def test_tts_startup_loads_only_default_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_matcha_warmup_runs_synthesis(monkeypatch, tmp_path):
+async def test_matcha_warmup_runs_worker_synthesis(monkeypatch, tmp_path):
     from spacemit_ai_gateway.domains.tts.adapters import matcha
 
-    engine_instances = []
+    worker_instances = []
 
-    class FakeConfig:
-        def __init__(self):
-            self.model_dir = None
-            self.sample_rate = 16000
-            self.speed = 1.0
-
-        @classmethod
-        def preset(cls, backend):
-            return cls()
-
-    class FakeResult:
-        is_success = True
-        message = "ok"
-
-    class FakeEngine:
+    class FakeWorker:
         def __init__(self, config):
             self.config = config
-            self.synthesize_calls = []
-            engine_instances.append(self)
+            self.warmup_calls = []
+            worker_instances.append(self)
 
-        def synthesize(self, text):
-            self.synthesize_calls.append(text)
-            return FakeResult()
+        async def start(self):
+            return {"sample_rate": 16000}
 
-    fake_spacemit_tts = SimpleNamespace(Config=FakeConfig, Engine=FakeEngine)
+        async def warmup(self, text):
+            self.warmup_calls.append(text)
 
     monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
-    monkeypatch.setitem(sys.modules, "spacemit_tts", fake_spacemit_tts)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
 
     backend = matcha.MatchaBackend(
         TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
@@ -248,39 +236,143 @@ async def test_matcha_warmup_runs_synthesis(monkeypatch, tmp_path):
     await backend.warmup()
 
     assert backend.state == BackendReadyState.READY
-    assert len(engine_instances) == 1
-    assert engine_instances[0].synthesize_calls == ["你好"]
+    assert len(worker_instances) == 1
+    assert worker_instances[0].warmup_calls == ["你好"]
+    assert worker_instances[0].config.model_dir == str(tmp_path / "tts")
+    assert backend.sample_rate == 16000
 
 
 @pytest.mark.asyncio
-async def test_matcha_shutdown_releases_engine(monkeypatch, tmp_path):
+async def test_matcha_worker_start_failure_falls_back_to_mock(monkeypatch, tmp_path):
     from spacemit_ai_gateway.domains.tts.adapters import matcha
 
-    class FakeConfig:
-        def __init__(self):
-            self.model_dir = None
-            self.sample_rate = 16000
-            self.speed = 1.0
+    worker_instances = []
 
-        @classmethod
-        def preset(cls, backend):
-            return cls()
-
-    class FakeResult:
-        is_success = True
-        message = "ok"
-
-    class FakeEngine:
+    class FakeWorker:
         def __init__(self, config):
-            self.config = config
+            self.stop_calls = []
+            worker_instances.append(self)
 
-        def synthesize(self, text):
-            return FakeResult()
+        async def start(self):
+            raise RuntimeError("missing spacemit_tts")
 
-    fake_spacemit_tts = SimpleNamespace(Config=FakeConfig, Engine=FakeEngine)
+        async def warmup(self, text):
+            raise AssertionError("warmup should not run after start failure")
+
+        async def stop(self, *, kill=False):
+            self.stop_calls.append(kill)
 
     monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
-    monkeypatch.setitem(sys.modules, "spacemit_tts", fake_spacemit_tts)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+
+    await backend.warmup()
+
+    assert backend.state == BackendReadyState.DEGRADED
+    assert backend._mock is True
+    assert backend._worker is None
+    assert worker_instances[0].stop_calls == [True]
+    result = await backend.synthesize("你好", None, 1.0, 1.0, 1.0)
+    assert result.sample_rate == backend.sample_rate
+
+
+@pytest.mark.asyncio
+async def test_matcha_worker_warmup_cancellation_stops_worker(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    worker_instances = []
+
+    class FakeWorker:
+        def __init__(self, config):
+            self.stop_calls = []
+            worker_instances.append(self)
+
+        async def start(self):
+            return {"sample_rate": 16000}
+
+        async def warmup(self, text):
+            raise asyncio.CancelledError()
+
+        async def stop(self, *, kill=False):
+            self.stop_calls.append(kill)
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await backend.warmup()
+
+    assert backend.state == BackendReadyState.DEGRADED
+    assert backend._mock is True
+    assert backend._worker is None
+    assert worker_instances[0].stop_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_matcha_worker_warmup_failure_stops_worker(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    worker_instances = []
+
+    class FakeWorker:
+        def __init__(self, config):
+            self.stop_calls = []
+            worker_instances.append(self)
+
+        async def start(self):
+            return {"sample_rate": 16000}
+
+        async def warmup(self, text):
+            raise RuntimeError("warmup failed")
+
+        async def stop(self, *, kill=False):
+            self.stop_calls.append(kill)
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+
+    await backend.warmup()
+
+    assert backend.state == BackendReadyState.DEGRADED
+    assert backend._mock is True
+    assert backend._worker is None
+    assert backend.sample_rate == 16000
+    assert worker_instances[0].stop_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_matcha_shutdown_stops_worker(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    worker_instances = []
+
+    class FakeWorker:
+        def __init__(self, config):
+            self.stopped = False
+            worker_instances.append(self)
+
+        async def start(self):
+            return {"sample_rate": 16000}
+
+        async def warmup(self, text):
+            return None
+
+        async def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
 
     backend = matcha.MatchaBackend(
         TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
@@ -290,9 +382,161 @@ async def test_matcha_shutdown_releases_engine(monkeypatch, tmp_path):
     await backend.shutdown()
 
     assert backend.state == BackendReadyState.IDLE
-    assert backend._engine is None
+    assert backend._worker is None
+    assert worker_instances[0].stopped is True
     with pytest.raises(TtsBackendUnavailable):
         await backend.synthesize("你好", None, 1.0, 1.0, 1.0)
+
+
+@pytest.mark.asyncio
+async def test_native_worker_stream_protocol_forwards_chunks(monkeypatch, tmp_path):
+    import asyncio
+    import os
+
+    from spacemit_ai_gateway.domains.tts.adapters.native_worker import NativeTtsWorker
+
+    fake_module = r"""
+import numpy as np
+
+class Config:
+    @classmethod
+    def preset(cls, backend):
+        cfg = cls()
+        cfg.backend = backend
+        cfg.model_dir = ""
+        cfg.sample_rate = 16000
+        cfg.speed = 1.0
+        return cfg
+
+class TtsCallback:
+    pass
+
+class _RawResult:
+    is_success = True
+    message = ""
+
+    def __init__(self, audio, duration_ms, processing_time_ms, rtf):
+        self.audio_int16 = np.asarray(audio, dtype=np.int16)
+        self.sample_rate = 16000
+        self.duration_ms = duration_ms
+        self.processing_time_ms = processing_time_ms
+        self.rtf = rtf
+
+class _StreamResult:
+    def __init__(self, audio, duration_ms, rtf):
+        self._audio = np.asarray(audio, dtype=np.int16)
+        self._duration_ms = duration_ms
+        self._rtf = rtf
+
+    def get_audio_int16(self):
+        return self._audio
+
+    def get_duration_ms(self):
+        return self._duration_ms
+
+    def get_rtf(self):
+        return self._rtf
+
+class Engine:
+    def __init__(self, config):
+        self.config = config
+
+    def synthesize(self, text):
+        return _RawResult([0], 1.0, 1.0, 1.0)
+
+    def synthesize_streaming(self, text, callback):
+        callback.on_event(_StreamResult([1, 2], 10.0, 0.1))
+        callback.on_event(_StreamResult([3, 4, 5], 20.0, 0.2))
+
+    def shutdown(self):
+        pass
+"""
+    (tmp_path / "spacemit_tts.py").write_text(fake_module, encoding="utf-8")
+    repo_src = Path(__file__).resolve().parents[2] / "src"
+    old_pythonpath = os.environ.get("PYTHONPATH")
+    pythonpath = f"{tmp_path}:{repo_src}"
+    if old_pythonpath:
+        pythonpath = f"{pythonpath}:{old_pythonpath}"
+    monkeypatch.setenv("PYTHONPATH", pythonpath)
+
+    worker = NativeTtsWorker(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts")),
+        startup_timeout_s=5.0,
+        request_timeout_s=5.0,
+    )
+
+    async def collect_events():
+        events = []
+        async for event in worker.stream_synthesize("你好"):
+            events.append(event)
+        return events
+
+    try:
+        events = await asyncio.wait_for(collect_events(), timeout=5.0)
+    finally:
+        await worker.stop(kill=True)
+
+    assert [event["type"] for event in events] == ["audio", "audio", "done"]
+    assert events[0]["audio"].tolist() == [1, 2]
+    assert events[1]["audio"].tolist() == [3, 4, 5]
+    assert events[2]["duration_ms"] == 30.0
+    assert events[2]["rtf"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_matcha_stream_forwards_worker_audio_events(monkeypatch, tmp_path):
+    from spacemit_ai_gateway.domains.tts.adapters import matcha
+
+    class FakeWorker:
+        def __init__(self, config):
+            self.stream_calls = []
+
+        async def start(self):
+            return {"sample_rate": 16000}
+
+        async def warmup(self, text):
+            return None
+
+        async def stream_synthesize(self, text):
+            self.stream_calls.append(text)
+            yield {
+                "type": "audio",
+                "audio": np.array([1, 2], dtype=np.int16),
+                "duration_ms": 10.0,
+                "rtf": 0.1,
+            }
+            yield {
+                "type": "audio",
+                "audio": np.array([3, 4, 5], dtype=np.int16),
+                "duration_ms": 20.0,
+                "rtf": 0.2,
+            }
+            yield {"type": "done", "duration_ms": 30.0, "rtf": 0.2}
+
+        async def stop(self):
+            return None
+
+    monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
+    monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+
+    backend = matcha.MatchaBackend(
+        TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
+    )
+    await backend.warmup()
+
+    stream = await backend.open_stream(voice_id=None, speed=1.0)
+    await stream.send_text("你好")
+    await stream.complete()
+
+    first = await stream.recv()
+    second = await stream.recv()
+    done = await stream.recv()
+
+    assert first.pcm == np.array([1, 2], dtype=np.int16).tobytes()
+    assert second.pcm == np.array([3, 4, 5], dtype=np.int16).tobytes()
+    assert done.duration_ms == 30.0
+    assert done.rtf == 0.2
+    assert await stream.recv() is None
 
 
 @pytest.mark.asyncio

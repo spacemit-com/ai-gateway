@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings
 
 class AppConfig(BaseModel):
     name: str = "SpacemiT AI Gateway"
-    version: str = "0.1.13"
+    version: str = "0.1.14"
     host: str = "0.0.0.0"
     port: int = 18790
     debug: bool = False

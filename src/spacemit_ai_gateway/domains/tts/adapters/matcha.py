@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import List, Optional
 
@@ -23,6 +24,7 @@ from .base import (
     TtsResult,
     TtsStreamSession,
 )
+from .native_worker import NativeTtsWorker
 
 logger = logging.getLogger(__name__)
 logger_bridge = logging.getLogger(f"{__name__}._Bridge")
@@ -98,7 +100,7 @@ class MatchaBackend(TtsBackend):
     def __init__(self, config: TtsConfig):
         self._config = config
         self._mock = False
-        self._engine = None
+        self._worker: NativeTtsWorker | None = None
         self._engine_lock = asyncio.Lock()
         self._closed = False
         self._engine_sample_rate = (
@@ -116,27 +118,9 @@ class MatchaBackend(TtsBackend):
             self._state = BackendReadyState.DEGRADED
             return
 
-        try:
-            import spacemit_tts
-        except ImportError as e:
-            logger.warning("spacemit_tts unavailable (%s) → TTS mock backend", e)
-            self._mock = True
-            self._state = BackendReadyState.DEGRADED
-            return
-
-        try:
-            engine_config = spacemit_tts.Config.preset(config.backend)
-            _set_model_dir(engine_config, model_dir)
-            if config.sample_rate is not None:
-                engine_config.sample_rate = config.sample_rate
-            engine_config.speed = config.speed
-            self._engine = spacemit_tts.Engine(engine_config)
-            self._engine_sample_rate = int(engine_config.sample_rate)
-            self._state = BackendReadyState.WARMING_UP
-        except Exception as e:
-            logger.exception("TTS engine init failed (%s), falling back to mock", e)
-            self._mock = True
-            self._state = BackendReadyState.DEGRADED
+        worker_config = config.model_copy(update={"model_dir": str(model_dir)})
+        self._worker = NativeTtsWorker(worker_config)
+        self._state = BackendReadyState.WARMING_UP
 
     @property
     def backend_name(self) -> str:
@@ -157,12 +141,21 @@ class MatchaBackend(TtsBackend):
             return
         text = _WARMUP_TEXT.get(self._config.backend, "hello")
         async with self._engine_lock:
-            engine = self._require_engine()
-            raw = await self._run_engine_call(engine.synthesize, text)
-        if not raw.is_success:
-            raise TtsBackendUnavailable(
-                f"warmup failed: {getattr(raw, 'message', 'unknown error')}"
-            )
+            worker = self._require_worker()
+            try:
+                init_info = await worker.start()
+                if init_info.get("sample_rate") is not None:
+                    self._engine_sample_rate = int(init_info["sample_rate"])
+                await worker.warmup(text)
+            except asyncio.CancelledError:
+                await self._fallback_to_mock_locked(worker)
+                raise
+            except Exception as e:
+                logger.exception(
+                    "TTS worker warmup failed (%s), falling back to mock", e
+                )
+                await self._fallback_to_mock_locked(worker)
+                return
         self._state = BackendReadyState.READY
 
     async def synthesize(
@@ -181,24 +174,11 @@ class MatchaBackend(TtsBackend):
 
         try:
             async with self._engine_lock:
-                engine = self._require_engine()
-                raw = await self._run_engine_call(engine.synthesize, text)
+                worker = self._require_worker()
+                return await worker.synthesize(text)
         except Exception as e:
             logger.exception("TTS synthesize failed")
             raise TtsBackendUnavailable(str(e)) from e
-
-        if not raw.is_success:
-            raise TtsBackendUnavailable(
-                f"synthesize failed: {getattr(raw, 'message', 'unknown error')}"
-            )
-
-        return TtsResult(
-            audio=np.asarray(raw.audio_int16, dtype=np.int16),
-            sample_rate=int(raw.sample_rate),
-            duration_ms=float(raw.duration_ms),
-            processing_ms=float(raw.processing_time_ms),
-            rtf=float(raw.rtf),
-        )
 
     async def open_stream(
         self, voice_id: Optional[str], speed: float
@@ -209,9 +189,14 @@ class MatchaBackend(TtsBackend):
                 loop, self.sample_rate, self._config.stream.event_queue_size
             )
         async with self._engine_lock:
-            self._require_engine()
+            self._require_worker()
         return _MatchaStream(
-            self, loop, self.sample_rate, self._config.stream.event_queue_size
+            self,
+            loop,
+            self.sample_rate,
+            self._config.stream.event_queue_size,
+            voice_id,
+            speed,
         )
 
     def get_voices(self) -> List[VoiceInfo]:
@@ -244,38 +229,37 @@ class MatchaBackend(TtsBackend):
         return {
             "threads": 1,
             "sample_rate": self._engine_sample_rate,
-            "cache_policy": None,
+            "cache_policy": "process-isolated",
         }
 
     async def update_lexicon(self, entries: list[dict]) -> None:
         if self._mock or self._closed:
             return
         async with self._engine_lock:
-            engine = self._require_engine()
-            await self._run_engine_call(engine.update_lexicon, entries)
+            worker = self._require_worker()
+            await worker.update_lexicon(entries)
 
     async def shutdown(self) -> None:
         async with self._engine_lock:
             self._closed = True
             self._state = BackendReadyState.IDLE
             self._mock = False
-            self._engine = None
+            worker, self._worker = self._worker, None
+            if worker is not None:
+                await worker.stop()
 
-    def _require_engine(self):
-        if self._closed or self._engine is None:
+    async def _fallback_to_mock_locked(self, worker: NativeTtsWorker) -> None:
+        if self._worker is worker:
+            self._worker = None
+        self._mock = True
+        self._state = BackendReadyState.DEGRADED
+        with contextlib.suppress(Exception):
+            await worker.stop(kill=True)
+
+    def _require_worker(self) -> NativeTtsWorker:
+        if self._closed or self._worker is None:
             raise TtsBackendUnavailable("TTS backend is not loaded")
-        return self._engine
-
-    async def _run_engine_call(self, func, *args):
-        task = asyncio.create_task(asyncio.to_thread(func, *args))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            try:
-                await task
-            except Exception:
-                logger.debug("TTS native call failed after cancellation", exc_info=True)
-            raise
+        return self._worker
 
 
 # ---------------------------------------------------------------------------
@@ -350,25 +334,30 @@ class _MockTtsStream(TtsStreamSession):
 
 
 class _MatchaStream(TtsStreamSession):
-    """真 SDK 流式合成。
+    """Gateway-level stream facade backed by the isolated worker.
 
-    SDK 契约（见 spacemit_tts.TtsCallback）：
-    - engine.synthesize_streaming(text, callback) 是阻塞式调用，callback 为 TtsCallback 子类实例
-    - 回调链：on_open → on_event*(per chunk) → on_complete / on_error → on_close
-    - SDK 强同步：synthesize_streaming 返回前所有 callback 已触发
-
-    WS 协议一次 session 可多轮 send_text，最终一次 complete() 发 TtsDone——
-    seq / total_ms / last_rtf 跨 send_text 累加，每轮新建一个 bridge。
+    The native worker forwards native streaming callbacks as PCM chunks.
+    This keeps the websocket contract while ensuring native allocations stay in the
+    worker process.
     """
 
-    def __init__(self, backend: MatchaBackend, loop, sample_rate: int, queue_size: int):
+    def __init__(
+        self,
+        backend: MatchaBackend,
+        loop,
+        sample_rate: int,
+        queue_size: int,
+        voice_id: Optional[str],
+        speed: float,
+    ):
         super().__init__(loop, queue_size=queue_size)
         self._backend = backend
         self._sample_rate = sample_rate
+        self._voice_id = voice_id
+        self._speed = speed
         self._seq = 0
         self._total_ms = 0.0
         self._last_rtf = 0.0
-        self._error_message: Optional[str] = None
 
     async def start(self) -> None:
         return
@@ -376,68 +365,21 @@ class _MatchaStream(TtsStreamSession):
     async def send_text(self, text: str) -> None:
         if not text:
             return
-        bridge = self._make_bridge()
         try:
             async with self._backend._engine_lock:
-                engine = self._backend._require_engine()
-                await self._backend._run_engine_call(
-                    engine.synthesize_streaming, text, bridge
-                )
+                worker = self._backend._require_worker()
+                async for event in worker.stream_synthesize(text):
+                    if event.get("type") == "audio":
+                        pcm = np.asarray(event["audio"], dtype=np.int16).tobytes()
+                        self._enqueue_threadsafe(TtsAudioChunk(pcm=pcm, seq=self._seq))
+                        self._seq += 1
+                        self._last_rtf = float(event.get("rtf") or 0.0)
+                    elif event.get("type") == "done":
+                        self._total_ms += float(event.get("duration_ms") or 0.0)
+                        self._last_rtf = float(event.get("rtf") or self._last_rtf)
         except Exception as e:
             logger.exception("matcha stream synth failed")
             raise TtsBackendUnavailable(str(e)) from e
-        if self._error_message:
-            err, self._error_message = self._error_message, None
-            raise TtsBackendUnavailable(err)
-
-    def _make_bridge(self):
-        import spacemit_tts
-
-        outer = self
-
-        class _Bridge(spacemit_tts.TtsCallback):
-            def on_open(self) -> None:
-                logger_bridge.debug("tts on_open")
-
-            def on_event(self, result) -> None:
-                try:
-                    arr = np.asarray(result.get_audio_int16(), dtype=np.int16)
-                    pcm = arr.tobytes()
-                except Exception:
-                    logger_bridge.debug(
-                        "tts on_event decode failed", exc_info=True
-                    )
-                    return
-
-                try:
-                    dur = float(result.get_duration_ms() or 0)
-                    rtf = float(result.get_rtf() or 0.0)
-                except Exception:
-                    dur = 0.0
-                    rtf = 0.0
-
-                logger_bridge.debug(
-                    "tts on_event seq=%d dur=%.1fms rtf=%.3f bytes=%d",
-                    outer._seq, dur, rtf, len(pcm),
-                )
-                outer._enqueue_threadsafe(
-                    TtsAudioChunk(pcm=pcm, seq=outer._seq)
-                )
-                outer._seq += 1
-                outer._total_ms += dur
-                outer._last_rtf = rtf
-
-            def on_complete(self) -> None:
-                logger_bridge.debug("tts on_complete")
-
-            def on_error(self, message: str) -> None:
-                logger_bridge.error("tts on_error: %s", message)
-                outer._error_message = str(message) if message else "tts error"
-
-            def on_close(self) -> None:
-                logger_bridge.debug("tts on_close")
-
-        return _Bridge()
 
     async def complete(self) -> None:
         self._enqueue_threadsafe(
