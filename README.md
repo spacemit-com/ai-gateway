@@ -1,6 +1,11 @@
 # SpacemiT AI Gateway
 
-SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank 统一 HTTP + WebSocket API 服务，运行于 K3 RISC-V 嵌入式设备。
+SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank / File2MD 统一 HTTP + WebSocket API 服务，运行于 K3 RISC-V 嵌入式设备。
+
+File2MD 通过独立的 `/v1/file2md` 域提供文档转 Markdown：`POST /v1/file2md/convert`
+接收 multipart 文件（PDF、Office、图片或文本），返回 Markdown、页数、处理耗时和
+manifest。引擎按请求懒加载并串行化，默认关闭流程图识别；需在设备上安装
+`spacemit-file2md==0.1.1` wheel 及其模型依赖。
 
 ## 安装
 
