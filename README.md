@@ -60,8 +60,7 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 
 ### Python 依赖
 
-`spacemit-ai-gateway` wheel 和 `spacemit-asr`、`spacemit-tts`、
-`spacemit-vad`、`spacemit-audio`、`spacemit-vision` 等 Python 包统一发布到 SpacemiT GitLab PyPI：
+`spacemit-ai-gateway` wheel、`spacemit-file2md` 和其他 model-zoo Python 包统一发布到 SpacemiT GitLab PyPI：
 
 - 包页面：https://git.spacemit.com/archive/pypi/-/packages
 - pip simple index：`https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple`
@@ -71,7 +70,8 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 ```bash
 python -m pip install \
     --index-url https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple \
-    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision
+    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision \
+    spacemit-file2md==0.1.1
 ```
 
 安装 `spacemit-ai-gateway` wheel 时只会自动拉取这些 SpacemiT Python 依赖，不会安装 apt 系统包。运行前必须先安装上一节列出的系统依赖：
@@ -413,6 +413,25 @@ pytest tests/
 | 运维 | GET | `/stats` | 性能指标 |
 | 运维 | GET | `/info` | 运行态摘要 |
 
+### File2MD 文档转 Markdown (`/v1/file2md`)
+
+File2MD 将 PDF、Office、图片和文本转换为 Markdown，并返回结构化 manifest。文件上传
+使用 multipart/form-data；需要鉴权时沿用网关的 `X-API-Key` 机制。
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/v1/file2md/convert` | 上传文件并同步转换 |
+| GET | `/v1/file2md/healthz` | 查询引擎状态 |
+
+```bash
+curl -F 'file=@/data/report.pdf' \
+  http://127.0.0.1:18790/v1/file2md/convert
+```
+
+返回字段包括 `markdown`、`page_count`、`processing_time_ms`、`output_directory` 和
+`manifest`。原生引擎是有状态的，网关会串行化转换请求；模型懒加载，不会在网关启动时
+占用推理资源。默认 `flowchart=false`，可在配置中开启。
+
 ### Vision 视觉处理 (`/v1/vision`)
 
 视觉域支持目标检测、人脸识别、姿态估计、语义分割、目标跟踪等，基于 SpaceMIT EP 加速推理。
@@ -527,11 +546,11 @@ pytest tests/
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + Embed + Rerank + Vision） |
+| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + Embed + Rerank + Vision + File2MD） |
 
 ### 多后端支持
 
-ASR / TTS / VAD / Vision / LLM / Embed / Rerank 均支持多后端，可通过 `models/load`、`models/unload`、`models/switch` 动态管理，请求时通过 `model` 字段路由：
+ASR / TTS / VAD / Vision / LLM / Embed / Rerank 支持多后端；File2MD 提供统一文档转换后端。各域可通过对应的管理接口动态配置：
 
 - **ASR**: `sensevoice`（默认）、`qwen3-asr`
 - **TTS**: `matcha_zh`（默认）、`matcha_en`、`matcha_zh_en`、`kokoro`
@@ -540,6 +559,7 @@ ASR / TTS / VAD / Vision / LLM / Embed / Rerank 均支持多后端，可通过 `
 - **LLM**: 16 个预设 GGUF 模型（Qwen3/3.5、Qwen2.5、DeepSeek、GLM 等），支持运行时注册远程 API 或本地模型
 - **Embed**: 5 个预设 GGUF 嵌入模型（BGE、Jina、Nomic、Qwen3 Embedding），支持运行时注册远程 API 或本地模型
 - **Rerank**: 2 个预设 GGUF 重排序模型（BGE Reranker、Qwen3 Reranker），支持运行时注册远程 API 或本地模型
+- **File2MD**: `spacemit-file2md==0.1.1` 原生 C++/pybind11 文档转换组件，支持 PDF、Office、图片、文本和网页输入
 
 ## License
 
