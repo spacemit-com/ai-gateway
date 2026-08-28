@@ -47,6 +47,8 @@ async def test_openapi_paths(client):
     assert "/v1/tts/stream/session" in paths
     assert "/v1/vad/analyze" in paths
     assert "/v1/vad/segments" in paths
+    assert "/v1/file2md/convert" in paths
+    assert "/v1/file2md/healthz" in paths
 
 
 async def test_asr_models(client):

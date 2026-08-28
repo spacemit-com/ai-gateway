@@ -25,6 +25,7 @@ async def healthz(request: Request):
         if svc is None:
             domains[name] = {"ready": False, "state": "uninitialized"}
             overall_ready = False
+
             continue
         info = await svc.healthz()
         domains[name] = info
@@ -33,6 +34,14 @@ async def healthz(request: Request):
             and info.get("state") not in _LAZY_READY_STATES
         ):
             overall_ready = False
+
+    file2md_svc = getattr(request.app.state, "file2md_service", None)
+    if file2md_svc is not None:
+        domains["file2md"] = {
+            "ready": file2md_svc.state == "idle",
+            "state": file2md_svc.state,
+            "backend": file2md_svc.backend,
+        }
 
     # LLM 域：idle 是正常初始状态，不影响 overall
     llm_svc = getattr(request.app.state, "llm_service", None)

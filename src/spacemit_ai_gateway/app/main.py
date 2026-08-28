@@ -30,6 +30,7 @@ from ..domains.tts import api as tts_api
 from ..domains.tts import stream as tts_stream
 from ..domains.vad import api as vad_api
 from ..domains.vad import stream as vad_stream
+from ..domains.file2md import api as file2md_api
 try:
     from ..domains.vlm import api as vlm_api
 except Exception:
@@ -155,6 +156,7 @@ app.include_router(tts_api.router, prefix="/v1/tts", tags=["TTS"])
 app.include_router(tts_stream.router, prefix="/v1/tts", tags=["TTS"])
 app.include_router(vad_api.router, prefix="/v1/vad", tags=["VAD"])
 app.include_router(vad_stream.router, prefix="/v1/vad", tags=["VAD"])
+app.include_router(file2md_api.router, prefix="/v1/file2md", tags=["File2MD"])
 app.include_router(llm_api.router, prefix="/v1/llm", tags=["LLM"])
 app.include_router(llm_api.compat_router, tags=["LLM"])
 app.include_router(embed_api.router, prefix="/v1/embed", tags=["Embed"])
@@ -182,6 +184,7 @@ async def root():
             "rerank": "/v1/rerank",
             "vlm": "/v1/vlm",
             "vision": "/v1/vision",
+            "file2md": "/v1/file2md",
         },
     }
 

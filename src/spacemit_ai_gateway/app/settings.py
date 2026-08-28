@@ -34,6 +34,21 @@ class LimitsConfig(BaseModel):
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB
 
 
+class File2mdConfig(BaseModel):
+    provider: str = "k3-int8"
+    model_dir: Optional[str] = None
+    output_dir: str = "~/.cache/spacemit-ai-gateway/file2md/output"
+    method: str = "auto"
+    language: str = "ch"
+    threads: int = 4
+    cpu_threads: int = 8
+    formula: bool = True
+    table: bool = True
+    flowchart: bool = False
+    image_ocr_caption: bool = False
+    save_images: bool = True
+
+
 # ---- ASR ----
 class AsrQwen3Config(BaseModel):
     endpoint: str = "http://127.0.0.1:8063/v1/chat/completions"
@@ -222,6 +237,7 @@ class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    file2md: File2mdConfig = Field(default_factory=File2mdConfig)
     asr: AsrConfig = Field(default_factory=AsrConfig)
     tts: TtsConfig = Field(default_factory=TtsConfig)
     vad: VadConfig = Field(default_factory=VadConfig)
