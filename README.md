@@ -55,7 +55,8 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 
 ### Python 依赖
 
-`spacemit-ai-gateway` wheel、`spacemit-file2md` 和其他 model-zoo Python 包统一发布到 SpacemiT GitLab PyPI：
+`spacemit-ai-gateway` wheel 和 `spacemit-asr`、`spacemit-tts`、
+`spacemit-vad`、`spacemit-audio`、`spacemit-vision`、`spacemit-file2md` 等 Python 包统一发布到 SpacemiT GitLab PyPI：
 
 - 包页面：https://git.spacemit.com/archive/pypi/-/packages
 - pip simple index：`https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple`
@@ -65,7 +66,7 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 ```bash
 python -m pip install \
     --index-url https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple \
-    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision spacemit-file2md==0.1.1
+    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision spacemit-file2md
 ```
 
 安装 `spacemit-ai-gateway` wheel 时只会自动拉取这些 SpacemiT Python 依赖，不会安装 apt 系统包。运行前必须先安装上一节列出的系统依赖：
@@ -158,6 +159,7 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 | LLM | `~/.cache/models/llm` |
 | Embed | `~/.cache/models/embed` |
 | Rerank | `~/.cache/models/rerank` |
+| File2md | `~/.cache/models/file2md` |
 
 Gateway 自己的 SQLite 注册表放在 `~/.cache/spacemit-ai-gateway/<domain>/db.sqlite`，不存放模型文件。
 
@@ -238,6 +240,7 @@ window.API_BASES = {
   llm:    'http://<后端IP>:18790',
   embed:  'http://<后端IP>:18790',
   rerank: 'http://<后端IP>:18790',
+  file2md: 'http://<后端IP>:18790',
 };
 ```
 
