@@ -49,6 +49,24 @@ async def test_openapi_paths(client):
     assert "/v1/vad/segments" in paths
     assert "/v1/file2md/convert" in paths
     assert "/v1/file2md/healthz" in paths
+    assert "/v1/file2md/models" in paths
+    assert "/v1/file2md/models/load" in paths
+    assert "/v1/file2md/models/unload" in paths
+    assert "/v1/file2md/params" in paths
+    assert "/v1/file2md/engine" in paths
+    assert "/v1/file2md/stats" in paths
+
+
+async def test_file2md_healthz_and_lazy_models(client):
+    health = await client.get("/v1/file2md/healthz")
+    assert health.status_code == 200
+    data = health.json()
+    assert data["state"] == "idle"
+    assert data["initialized"] is False
+
+    models = await client.get("/v1/file2md/models")
+    assert models.status_code == 200
+    assert models.json()["models_ready"] is False
 
 
 async def test_asr_models(client):

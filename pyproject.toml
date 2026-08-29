@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "spacemit-ai-gateway"
 version = "0.1.15"
-description = "SpacemiT AI Gateway - ASR/TTS/VAD HTTP API"
+description = "SpacemiT AI Gateway - ASR/TTS/VAD/Vision/LLM/File2MD HTTP API"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
