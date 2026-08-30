@@ -499,6 +499,10 @@ curl http://127.0.0.1:18790/v1/file2md/stats
 `/models`、`/healthz`、`/params`、`/engine`、`/stats` 的 JSON 结构可直接从
 `/openapi.json` 获取。
 
+转换响应中的 `success` 表示文档主体转换是否成功；如果引擎返回的 manifest
+不是合法 JSON，响应仍会保留主体结果，同时在 `manifest_error` 中说明元数据
+解析失败，调用方可据此决定是否需要重试或降级处理。
+
 ### Vision 视觉处理 (`/v1/vision`)
 
 视觉域支持目标检测、人脸识别、姿态估计、语义分割、目标跟踪等，基于 SpaceMIT EP 加速推理。

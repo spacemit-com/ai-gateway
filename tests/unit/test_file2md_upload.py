@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -28,6 +30,7 @@ async def test_chunked_upload_hard_limit_returns_413():
     with pytest.raises(HTTPException) as exc_info:
         await _write_upload_to_temp(upload, 10, "note.txt")
     assert exc_info.value.status_code == 413
+    assert not list(Path(tempfile.gettempdir()).glob("file2md-upload-*.txt"))
 
 
 @pytest.mark.asyncio

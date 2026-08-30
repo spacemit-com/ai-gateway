@@ -40,6 +40,7 @@ async def _write_upload_to_temp(
     )
     path = Path(temp.name)
     total = 0
+    # Only preserve a path after the complete upload has been written.
     keep_path = False
     try:
         while True:
