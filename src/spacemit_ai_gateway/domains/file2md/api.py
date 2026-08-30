@@ -34,6 +34,12 @@ async def _write_upload_to_temp(
     file: UploadFile, max_bytes: int, filename: str
 ) -> Path:
     """Stream an UploadFile to disk while enforcing a hard file-size limit."""
+    # Read once before creating a temporary file so an empty upload does not
+    # allocate a filesystem entry at all.
+    first_chunk = await file.read(_UPLOAD_CHUNK_SIZE)
+    if not first_chunk:
+        raise HTTPException(status_code=400, detail="uploaded file is empty")
+
     suffix = Path(filename).suffix.lower() or ".bin"
     temp = tempfile.NamedTemporaryFile(
         prefix="file2md-upload-", suffix=suffix, delete=False
@@ -43,10 +49,8 @@ async def _write_upload_to_temp(
     # Only preserve a path after the complete upload has been written.
     keep_path = False
     try:
-        while True:
-            chunk = await file.read(_UPLOAD_CHUNK_SIZE)
-            if not chunk:
-                break
+        chunk = first_chunk
+        while chunk:
             total += len(chunk)
             if total > max_bytes:
                 raise HTTPException(
@@ -54,15 +58,15 @@ async def _write_upload_to_temp(
                     detail="uploaded file exceeds max_upload_bytes",
                 )
             await asyncio.to_thread(temp.write, chunk)
+            chunk = await file.read(_UPLOAD_CHUNK_SIZE)
         temp.flush()
-        if total == 0:
-            raise HTTPException(status_code=400, detail="uploaded file is empty")
         keep_path = True
         return path
     finally:
         temp.close()
         if not keep_path:
             path.unlink(missing_ok=True)
+
 
 
 @router.get("/healthz", response_model=HealthResponse, summary="健康检查")
