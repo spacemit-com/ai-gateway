@@ -138,7 +138,7 @@ curl -s localhost:18790/healthz | jq .
 |------|------|
 | `base.yaml` | 默认配置（各域参数、端口、鉴权和上传限制） |
 | `dev.yaml` | 开发环境覆盖 |
-| `file2md.yaml` | File2MD 独立配置示例（可直接通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定，或合并到 `base.yaml`） |
+| `file2md.yaml` | File2MD 独立配置示例（需作为完整配置文件通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定） |
 | `vision/` | 视觉模型 YAML（`model_id` 与文件名一致）：YOLOv8/YOLOv11 的 n/s/m 及 `-pose`/`-seg` 变体、YOLOv5 人脸/手势、ResNet、情绪、ArcFace、ByteTrack、OC-SORT 等 |
 
 模型清单 schema 位于 `schema/`，供外部工具读取；`.deb` 安装路径为

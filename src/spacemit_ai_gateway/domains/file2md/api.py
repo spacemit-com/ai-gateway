@@ -40,6 +40,7 @@ async def _write_upload_to_temp(
     )
     path = Path(temp.name)
     total = 0
+    keep_path = False
     try:
         while True:
             chunk = await file.read(_UPLOAD_CHUNK_SIZE)
@@ -55,13 +56,12 @@ async def _write_upload_to_temp(
         temp.flush()
         if total == 0:
             raise HTTPException(status_code=400, detail="uploaded file is empty")
+        keep_path = True
         return path
-    except Exception:
-        temp.close()
-        path.unlink(missing_ok=True)
-        raise
     finally:
         temp.close()
+        if not keep_path:
+            path.unlink(missing_ok=True)
 
 
 @router.get("/healthz", response_model=HealthResponse, summary="健康检查")
