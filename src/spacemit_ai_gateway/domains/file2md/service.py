@@ -93,6 +93,18 @@ class File2mdService:
         return options
 
     async def healthz(self) -> dict[str, Any]:
+        # A conversion holds the lock for its native call; probes must not queue behind it.
+        if self._lock.locked():
+            state = "stopped" if self._state == "stopped" else "busy"
+            return {
+                "ready": state in {"idle", "busy"} and self._last_error is None,
+                "state": state,
+                "backend": self.backend,
+                "initialized": self._engine is not None,
+                "models_ready": False,
+                "models": [],
+                "last_error": self._last_error,
+            }
         async with self._lock:
             engine = self._engine
             models_ready = False

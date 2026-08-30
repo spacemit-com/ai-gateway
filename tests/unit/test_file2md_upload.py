@@ -119,3 +119,16 @@ async def test_file2md_stats_reset_when_engine_is_unloaded_or_shutdown():
     service._stats["total_requests"] = 1
     await service.shutdown()
     assert service.get_stats()["total_requests"] == 0
+
+
+@pytest.mark.asyncio
+async def test_healthz_returns_busy_without_waiting_for_conversion_lock():
+    service = File2mdService(SimpleNamespace(provider="k3-int8"))
+    service._state = "busy"
+    await service._lock.acquire()
+    try:
+        result = await service.healthz()
+    finally:
+        service._lock.release()
+    assert result["state"] == "busy"
+    assert result["models"] == []

@@ -90,7 +90,6 @@ async def convert(
     __: None = Depends(verify_api_key),
 ) -> ConvertResponse:
     max_bytes = request.app.state.settings.limits.max_upload_bytes
-    path = await _write_upload_to_temp(file, max_bytes, file.filename or "input.bin")
     options = ConvertOptionsForm(
         method=method,
         language=language,
@@ -103,6 +102,7 @@ async def convert(
         start_page=start_page,
         end_page=end_page,
     )
+    path = await _write_upload_to_temp(file, max_bytes, file.filename or "input.bin")
     try:
         result = await service.convert_path(
             path, file.filename or "input.bin", options.as_overrides()
@@ -156,7 +156,7 @@ async def update_params(
     _: None = Depends(verify_api_key),
 ) -> ParamsResponse:
     try:
-        return ParamsResponse(**service.update_params(body.model_dump(exclude_none=True)))
+        return ParamsResponse(**service.update_params(body.model_dump(exclude_unset=True)))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -175,7 +175,7 @@ async def update_engine(
     _: None = Depends(verify_api_key),
 ) -> EngineResponse:
     try:
-        return EngineResponse(**service.update_engine(body.model_dump(exclude_none=True)))
+        return EngineResponse(**service.update_engine(body.model_dump(exclude_unset=True)))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
