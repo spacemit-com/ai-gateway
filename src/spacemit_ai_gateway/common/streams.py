@@ -102,6 +102,10 @@ def enforce_max_upload_size(max_bytes: int) -> Callable[[Request], Awaitable[Non
     return dep
 
 
+class _RequestBodyTooLarge(Exception):
+    """Abort downstream request handling after sending HTTP 413."""
+
+
 class RequestBodySizeLimitMiddleware:
     """Reject File2MD request bodies before Starlette parses multipart data.
 
@@ -144,14 +148,13 @@ class RequestBodySizeLimitMiddleware:
             if total > self.max_bytes:
                 rejected = True
                 await self._send_too_large(send, total)
-                return {"type": "http.disconnect"}
+                raise _RequestBodyTooLarge
             return message
 
         try:
             await self.app(scope, limited_receive, send)
-        except Exception:
-            if not rejected:
-                raise
+        except _RequestBodyTooLarge:
+            return
 
     async def _send_too_large(self, send: Send, size: int) -> None:
         body = (

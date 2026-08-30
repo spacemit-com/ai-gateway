@@ -37,6 +37,9 @@ class File2mdService:
         self._last_error: str | None = None
         self._pending_restart = False
 
+    def _reset_stats(self) -> None:
+        self._stats.update(total_requests=0, total_errors=0, total_processing_ms=0.0)
+
     @property
     def backend(self) -> str:
         return self._config.provider
@@ -165,6 +168,7 @@ class File2mdService:
             self._module = None
             self._pending_restart = False
             self._last_error = None
+            self._reset_stats()
             self._state = "idle"
             return {
                 "backend": self.backend,
@@ -295,4 +299,5 @@ class File2mdService:
             self._engine = None
             self._module = None
             self._pending_restart = False
+            self._reset_stats()
             self._state = "stopped"

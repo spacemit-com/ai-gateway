@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException, UploadFile
 
 from spacemit_ai_gateway.common.streams import RequestBodySizeLimitMiddleware
 from spacemit_ai_gateway.domains.file2md.api import _write_upload_to_temp
+from spacemit_ai_gateway.domains.file2md.service import File2mdService
 
 
 @pytest.mark.asyncio
@@ -31,15 +33,15 @@ async def test_chunked_upload_hard_limit_returns_413():
 @pytest.mark.asyncio
 async def test_request_body_middleware_rejects_chunked_body_before_app():
     called = False
+    received_frames = 0
     sent = []
 
     async def app(scope, receive, send):
-        nonlocal called
+        nonlocal called, received_frames
         called = True
         while True:
             message = await receive()
-            if message.get("type") == "http.disconnect":
-                return
+            received_frames += 1
             if not message.get("more_body"):
                 return
 
@@ -68,6 +70,7 @@ async def test_request_body_middleware_rejects_chunked_body_before_app():
     )
 
     assert called is True
+    assert received_frames == 1
     assert sent[-2]["status"] == 413
     assert sent[-1]["body"]
 
@@ -97,3 +100,22 @@ async def test_request_body_middleware_rejects_declared_body_before_app():
 
     assert called is False
     assert sent[-2]["status"] == 413
+
+
+@pytest.mark.asyncio
+async def test_file2md_stats_reset_when_engine_is_unloaded_or_shutdown():
+    service = File2mdService(SimpleNamespace(provider="k3-int8"))
+    service._stats.update(
+        total_requests=3,
+        total_errors=1,
+        total_processing_ms=42.0,
+    )
+
+    await service.unload_models()
+    assert service.get_stats()["total_requests"] == 0
+    assert service.get_stats()["total_errors"] == 0
+    assert service.get_stats()["total_processing_ms"] == 0.0
+
+    service._stats["total_requests"] = 1
+    await service.shutdown()
+    assert service.get_stats()["total_requests"] == 0
