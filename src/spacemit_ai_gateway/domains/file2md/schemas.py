@@ -11,6 +11,7 @@ class ConvertResponse(BaseModel):
     markdown: str = ""
     error: str | None = None
     manifest_error: str | None = None
+    manifest_json_raw: str | None = None
     page_count: int = 0
     processing_time_ms: float = 0.0
     output_directory: str | None = None

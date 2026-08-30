@@ -501,7 +501,8 @@ curl http://127.0.0.1:18790/v1/file2md/stats
 
 转换响应中的 `success` 表示文档主体转换是否成功；如果引擎返回的 manifest
 不是合法 JSON，响应仍会保留主体结果，同时在 `manifest_error` 中说明元数据
-解析失败，调用方可据此决定是否需要重试或降级处理。
+解析失败，响应还会在 `manifest_json_raw` 中保留引擎原始 JSON，调用方可据此
+决定是否需要重试或降级处理。
 
 ### Vision 视觉处理 (`/v1/vision`)
 

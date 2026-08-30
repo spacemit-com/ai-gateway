@@ -277,10 +277,12 @@ class File2mdService:
         result = engine.convert(path, self._options(overrides))
         manifest: dict[str, Any] = {}
         manifest_error: str | None = None
+        manifest_json_raw: str | None = None
         try:
             manifest = json.loads(result.manifest_json or "{}")
         except Exception as exc:
             manifest_error = f"{type(exc).__name__}: invalid manifest JSON"
+            manifest_json_raw = result.manifest_json or None
             summary = (result.manifest_json or "")[:100].replace("\n", " ")
             logger.warning("File2MD returned invalid manifest (%s), prefix=%r", manifest_error, summary)
         return {
@@ -289,6 +291,7 @@ class File2mdService:
             "markdown": result.markdown if result.success else "",
             "error": result.error or None,
             "manifest_error": manifest_error,
+            "manifest_json_raw": manifest_json_raw,
             "page_count": int(result.page_count),
             "processing_time_ms": float(result.processing_time),
             "output_directory": result.output_directory or None,

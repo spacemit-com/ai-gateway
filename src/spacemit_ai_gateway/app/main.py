@@ -88,6 +88,12 @@ app.add_middleware(
 app.add_middleware(
     RequestBodySizeLimitMiddleware,
     max_bytes=settings.limits.max_upload_bytes,
+    paths={
+        "/v1/asr/recognize",
+        "/v1/vad/analyze",
+        "/v1/vad/segments",
+        "/v1/file2md/convert",
+    },
 )
 
 
