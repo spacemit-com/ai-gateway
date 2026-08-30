@@ -61,9 +61,6 @@ sudo apt install libpoppler-cpp3 libarchive13t64 libxml2-16 libcurl4t64 \
     libreoffice chromium python3-xlrd
 ```
 
-这些包名按 Bianbu 4.x `riscv64` 软件源确认（例如 `archive.bianbu.xyz/bianbu4`）。
-如果在其他发行版构建或部署，请先用 `apt-cache policy <包名>` 确认对应的实际包名，
-不要直接把 `libarchive13`、`libxml2` 或 `libcurl4` 等其他发行版名称写入依赖。
 
 ### Python 依赖
 
@@ -78,7 +75,7 @@ sudo apt install libpoppler-cpp3 libarchive13t64 libxml2-16 libcurl4t64 \
 ```bash
 python -m pip install \
     --index-url https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple \
-    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision spacemit-file2md==0.1.1
+    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision spacemit-file2md
 ```
 
 安装 `spacemit-ai-gateway` wheel 时只会自动拉取这些 SpacemiT Python 依赖，不会安装 apt 系统包。运行前必须先安装上一节列出的系统依赖：
@@ -174,7 +171,7 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 | LLM | `~/.cache/models/llm` |
 | Embed | `~/.cache/models/embed` |
 | Rerank | `~/.cache/models/rerank` |
-| File2MD | `~/.cache/models/file2md`（可通过 `file2md.model_dir` 覆盖；输出目录为 `~/.cache/spacemit-ai-gateway/file2md/output`） |
+| File2MD | `~/.cache/models/file2md` |
 
 Gateway 自己的 SQLite 注册表放在 `~/.cache/spacemit-ai-gateway/<domain>/db.sqlite`，不存放模型文件。
 
