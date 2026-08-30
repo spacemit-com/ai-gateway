@@ -193,8 +193,9 @@ File2MD 的主要配置位于 `file2md` 节：
 默认部署读取 `configs/base.yaml`，其中已经包含完整的 `file2md` 节；
 `configs/file2md.yaml` 只是一个独立配置示例，不会与 `base.yaml` 自动合并。
 如果通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定它，程序只读取该文件，其他配置使用
-代码默认值。生产部署建议直接修改 `base.yaml` 的 `file2md` 节，或指定一个包含
-所需完整配置的独立 YAML 文件。
+代码默认值。指定独立配置文件时，需确保其中包含所有启用域（如 ASR/TTS/VAD）
+的完整配置节，否则这些域将回退到代码默认值。生产部署建议直接修改 `base.yaml`
+的 `file2md` 节，或指定一个包含所需完整配置的独立 YAML 文件。
 
 ```yaml
 file2md:

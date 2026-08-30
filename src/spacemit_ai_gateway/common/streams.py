@@ -141,7 +141,9 @@ class RequestBodySizeLimitMiddleware:
         async def limited_receive() -> dict[str, Any]:
             nonlocal total, rejected
             message = await receive()
-            if message.get("type") != "http.request" or rejected:
+            if rejected:
+                return {"type": "http.disconnect"}
+            if message.get("type") != "http.request":
                 return message
             body = message.get("body", b"")
             total += len(body)
