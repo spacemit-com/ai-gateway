@@ -44,6 +44,7 @@ except ImportError:
 from ..gateway.errors import setup_exception_handlers
 from ..gateway.health import router as health_router
 from ..gateway.system_stats import router as system_stats_router
+from ..common.streams import RequestBodySizeLimitMiddleware
 from .lifespan import lifespan
 from .settings import get_settings
 
@@ -83,6 +84,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-RTF", "X-Duration-Ms", "X-Processing-Ms", "X-Sample-Rate"],
+)
+app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    max_bytes=settings.limits.max_upload_bytes,
 )
 
 

@@ -145,6 +145,7 @@ class File2mdService:
                     self._last_error = "File2MD model preload failed"
                     self._stats["total_errors"] += 1
                 return {
+                    "backend": self.backend,
                     "loaded": ok,
                     "models_ready": bool(await asyncio.to_thread(engine.are_models_ready)),
                     "models": await asyncio.to_thread(self._model_states_sync),
@@ -165,7 +166,12 @@ class File2mdService:
             self._pending_restart = False
             self._last_error = None
             self._state = "idle"
-            return {"unloaded": True}
+            return {
+                "backend": self.backend,
+                "unloaded": True,
+                "models_ready": False,
+                "models": [],
+            }
 
     def get_params(self) -> dict[str, Any]:
         return self._config.model_dump()

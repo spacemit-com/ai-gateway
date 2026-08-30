@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-from typing import Awaitable, Callable, Generic, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
 
 from fastapi import Request, WebSocket
+from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from .errors import DomainError, RequestTooLargeError
@@ -99,6 +100,73 @@ def enforce_max_upload_size(max_bytes: int) -> Callable[[Request], Awaitable[Non
             )
 
     return dep
+
+
+class RequestBodySizeLimitMiddleware:
+    """Reject File2MD request bodies before Starlette parses multipart data.
+
+    ``UploadFile`` dependencies run after multipart parsing.  This ASGI wrapper
+    enforces the same limit while body frames are received, including chunked
+    requests without a ``Content-Length`` header.
+    """
+
+    def __init__(self, app: Any, max_bytes: int, paths: set[str] | None = None):
+        self.app = app
+        self.max_bytes = max_bytes
+        self.paths = paths or {"/v1/file2md/convert"}
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http" or scope.get("path") not in self.paths:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                declared_size = int(content_length)
+            except (TypeError, ValueError):
+                declared_size = None
+            if declared_size is not None and declared_size > self.max_bytes:
+                await self._send_too_large(send, declared_size)
+                return
+
+        total = 0
+        rejected = False
+
+        async def limited_receive() -> dict[str, Any]:
+            nonlocal total, rejected
+            message = await receive()
+            if message.get("type") != "http.request" or rejected:
+                return message
+            body = message.get("body", b"")
+            total += len(body)
+            if total > self.max_bytes:
+                rejected = True
+                await self._send_too_large(send, total)
+                return {"type": "http.disconnect"}
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except Exception:
+            if not rejected:
+                raise
+
+    async def _send_too_large(self, send: Send, size: int) -> None:
+        body = (
+            '{"error":"request_too_large",'
+            f'"message":"upload size {size} bytes exceeds limit {self.max_bytes} bytes",'
+            '"retriable":false,"details":null}'
+        ).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 # ============================================================
