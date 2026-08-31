@@ -130,8 +130,12 @@ class RequestBodySizeLimitMiddleware:
             try:
                 declared_size = int(content_length)
             except (TypeError, ValueError):
-                declared_size = None
-            if declared_size is not None and declared_size > self.max_bytes:
+                await self._send_bad_request(send, "invalid Content-Length header")
+                return
+            if declared_size < 0:
+                await self._send_bad_request(send, "invalid Content-Length header")
+                return
+            if declared_size > self.max_bytes:
                 await self._send_too_large(send, declared_size)
                 return
 
@@ -157,6 +161,11 @@ class RequestBodySizeLimitMiddleware:
             await self.app(scope, limited_receive, send)
         except _RequestBodyTooLarge:
             return
+
+    async def _send_bad_request(self, send: Send, message: str) -> None:
+        body = (f'{{"error":"invalid_request","message":"{message}","retriable":false,"details":null}}').encode("utf-8")
+        await send({"type": "http.response.start", "status": 400, "headers": [(b"content-type", b"application/json")]})
+        await send({"type": "http.response.body", "body": body})
 
     async def _send_too_large(self, send: Send, size: int) -> None:
         body = (

@@ -291,10 +291,11 @@ class File2mdService:
                 manifest_error,
                 summary,
             )
+        conversion_success = bool(result.success) and manifest_error is None
         return {
-            "success": bool(result.success),
+            "success": conversion_success,
             "request_id": result.request_id or None,
-            "markdown": result.markdown if result.success else "",
+            "markdown": result.markdown if conversion_success else "",
             "error": result.error or None,
             "manifest_error": manifest_error,
             "manifest_json_raw": manifest_json_raw,

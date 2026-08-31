@@ -173,9 +173,10 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 | Rerank | `~/.cache/models/rerank` |
 | File2MD | `~/.cache/models/file2md` |
 
-File2MD model cache and conversion output are stored separately. Models use the directory above; generated
-Markdown and images are written to `~/.cache/spacemit-ai-gateway/file2md/output` by default.
-Override this location with `file2md.output_dir`.
+**Important:** File2MD model cache and conversion output are stored separately. Models use the directory above;
+generated Markdown and images are written to `~/.cache/spacemit-ai-gateway/file2md/output` by default.
+Override this location with `file2md.output_dir`. If `SPACEMIT_AI_GATEWAY_CONFIG` points to a standalone YAML file,
+that file replaces `base.yaml`; include every domain section you intend to enable, or those domains use code defaults.
 
 Gateway 自己的 SQLite 注册表放在 `~/.cache/spacemit-ai-gateway/<domain>/db.sqlite`，不存放模型文件。
 
