@@ -74,7 +74,11 @@ class File2mdService:
     def _options(self, overrides: dict[str, Any] | None = None) -> Any:
         if self._module is None:
             raise RuntimeError("File2MD engine is not initialized")
-        config = self._config.model_copy(update=overrides or {})
+        raw_overrides = overrides or {}
+        config_fields = set(self._config.model_fields)
+        config = self._config.model_copy(
+            update={key: value for key, value in raw_overrides.items() if key in config_fields}
+        )
         options = self._module.ConvertOptions()
         options.method = {
             "auto": self._module.ParseMethod.AUTO,
