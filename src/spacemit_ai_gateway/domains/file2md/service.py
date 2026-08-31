@@ -284,7 +284,13 @@ class File2mdService:
             manifest_error = f"{type(exc).__name__}: invalid manifest JSON"
             manifest_json_raw = result.manifest_json or None
             summary = (result.manifest_json or "")[:100].replace("\n", " ")
-            logger.warning("File2MD returned invalid manifest (%s), prefix=%r", manifest_error, summary)
+            logger.warning(
+                "File2MD returned invalid manifest (request_id=%r, source=%r, %s), prefix=%r",
+                result.request_id or None,
+                Path(path).name,
+                manifest_error,
+                summary,
+            )
         return {
             "success": bool(result.success),
             "request_id": result.request_id or None,
