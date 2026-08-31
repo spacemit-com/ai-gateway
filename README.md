@@ -173,6 +173,10 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 | Rerank | `~/.cache/models/rerank` |
 | File2MD | `~/.cache/models/file2md` |
 
+File2MD ????????????????????????????????
+Markdown?????????? `~/.cache/spacemit-ai-gateway/file2md/output`?
+??? `file2md.output_dir` ?????
+
 Gateway 自己的 SQLite 注册表放在 `~/.cache/spacemit-ai-gateway/<domain>/db.sqlite`，不存放模型文件。
 
 LLM / Embed / Rerank 的 `backend` 配置非空时，服务启动会尝试自动下载并加载默认模型；File2MD 则保持懒加载。K3 8GB 内存环境不建议同时自动加载多个 GGUF 模型；如果只需要运行管理接口或按需加载模型，可关闭默认自动加载：
