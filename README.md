@@ -159,6 +159,17 @@ SPACEMIT_AI_GATEWAY_CONFIG=configs/dev.yaml spacemit-ai-gateway
 SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 ```
 
+### 配置文件覆盖规则
+
+File2MD 的主要配置位于 `file2md` 节：
+
+默认部署读取 `configs/base.yaml`，其中已经包含完整的 `file2md` 节；
+`configs/file2md.yaml` 只是一个独立配置示例，不会与 `base.yaml` 自动合并。
+如果通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定它，程序只读取该文件，其他配置使用
+代码默认值。指定独立配置文件时，需确保其中包含所有启用域（如 ASR/TTS/VAD）
+的完整配置节，否则这些域将回退到代码默认值。生产部署建议直接修改 `base.yaml`
+的 `file2md` 节，或指定一个包含所需完整配置的独立 YAML 文件。
+
 ### 模型缓存与自动加载
 
 模型文件统一放在 `~/.cache/models/<domain>/`，和 ASR/TTS/VAD/Vision 的缓存布局保持一致：
@@ -193,15 +204,6 @@ rerank:
 ```
 
 按需加载时再调用对应域的 `POST /models/load` 或 `POST /models/switch`。
-
-File2MD 的主要配置位于 `file2md` 节：
-
-默认部署读取 `configs/base.yaml`，其中已经包含完整的 `file2md` 节；
-`configs/file2md.yaml` 只是一个独立配置示例，不会与 `base.yaml` 自动合并。
-如果通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定它，程序只读取该文件，其他配置使用
-代码默认值。指定独立配置文件时，需确保其中包含所有启用域（如 ASR/TTS/VAD）
-的完整配置节，否则这些域将回退到代码默认值。生产部署建议直接修改 `base.yaml`
-的 `file2md` 节，或指定一个包含所需完整配置的独立 YAML 文件。
 
 ```yaml
 file2md:

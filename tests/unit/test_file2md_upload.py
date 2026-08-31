@@ -34,6 +34,48 @@ async def test_chunked_upload_hard_limit_returns_413():
 
 
 @pytest.mark.asyncio
+async def test_empty_upload_is_rejected_before_temp_file_creation(monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("empty uploads must not create a temporary file")
+
+    monkeypatch.setattr(
+        "spacemit_ai_gateway.domains.file2md.api.tempfile.NamedTemporaryFile",
+        fail_if_called,
+    )
+    upload = UploadFile(file=io.BytesIO(b""), filename="empty.txt")
+    with pytest.raises(HTTPException) as exc_info:
+        await _write_upload_to_temp(upload, 10, "empty.txt")
+    assert exc_info.value.status_code == 400
+
+
+def test_manifest_error_keeps_engine_success_and_markdown():
+    service = File2mdService(SimpleNamespace(provider="k3-int8"))
+    service._engine = SimpleNamespace(
+        convert=lambda path, options: SimpleNamespace(
+            success=True,
+            request_id="req-1",
+            markdown="# Document",
+            error="",
+            manifest_json="{invalid",
+            page_count=1,
+            processing_time=1.5,
+            output_directory="",
+            middle_json="",
+            content_list_json="",
+            page_metrics=[],
+        )
+    )
+    service._options = lambda overrides=None: None
+
+    result = service._convert_sync("/tmp/input.pdf")
+
+    assert result["success"] is True
+    assert result["markdown"] == "# Document"
+    assert result["manifest_error"]
+    assert result["manifest_json_raw"] == "{invalid"
+
+
+@pytest.mark.asyncio
 async def test_request_body_middleware_rejects_chunked_body_before_app():
     called = False
     received_frames = 0

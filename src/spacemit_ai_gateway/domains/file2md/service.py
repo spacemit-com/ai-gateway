@@ -295,7 +295,10 @@ class File2mdService:
                 manifest_error,
                 summary,
             )
-        conversion_success = bool(result.success) and manifest_error is None
+        # success describes the document conversion performed by the engine.
+        # Manifest parsing is metadata handling and is reported independently
+        # so callers can decide whether to retry or degrade.
+        conversion_success = bool(result.success)
         return {
             "success": conversion_success,
             "request_id": result.request_id or None,
