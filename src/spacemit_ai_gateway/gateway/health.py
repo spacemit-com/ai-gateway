@@ -25,12 +25,23 @@ async def healthz(request: Request):
         if svc is None:
             domains[name] = {"ready": False, "state": "uninitialized"}
             overall_ready = False
+
             continue
         info = await svc.healthz()
         domains[name] = info
         if (
             not info.get("ready", False)
             and info.get("state") not in _LAZY_READY_STATES
+        ):
+            overall_ready = False
+
+    file2md_svc = getattr(request.app.state, "file2md_service", None)
+    if file2md_svc is not None:
+        file2md_info = await file2md_svc.healthz()
+        domains["file2md"] = file2md_info
+        if (
+            not file2md_info.get("ready", False)
+            and file2md_info.get("state") not in _LAZY_READY_STATES
         ):
             overall_ready = False
 
