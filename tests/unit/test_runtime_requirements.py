@@ -12,6 +12,7 @@ RUNTIME_PACKAGES = {
     "spacemit-vad",
     "spacemit-audio",
     "spacemit-vision",
+    "spacemit-file2md",
 }
 
 

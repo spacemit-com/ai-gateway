@@ -36,6 +36,7 @@ from ..domains.vad.service import VadService
 from ..domains.vad.stream import VadStreamHandler
 from ..domains.vlm.adapters import build_vlm_backends
 from ..domains.vlm.service import VlmService
+from ..domains.file2md.service import File2mdService
 try:
     from ..domains.vision import api as vision_api
 except ImportError:
@@ -130,6 +131,7 @@ async def lifespan(app: FastAPI):
     await rerank_service.initialize()
     vlm_service = VlmService(vlm_backends, vlm_default, config=settings.vlm)
     await vlm_service.initialize()
+    file2md_service = File2mdService(settings.file2md)
 
     if vision_api is not None:
         try:
@@ -152,6 +154,7 @@ async def lifespan(app: FastAPI):
     app.state.embed_service = embed_service
     app.state.rerank_service = rerank_service
     app.state.vlm_service = vlm_service
+    app.state.file2md_service = file2md_service
     app.state.asr_stream_handler = AsrStreamHandler(asr_service)
     app.state.tts_stream_handler = TtsStreamHandler(tts_service)
     app.state.vad_stream_handler = VadStreamHandler(vad_service)
@@ -175,6 +178,7 @@ async def lifespan(app: FastAPI):
             embed_service.shutdown(),
             rerank_service.shutdown(),
             vlm_service.shutdown(),
+            file2md_service.shutdown(),
             return_exceptions=True,
         )
         if vision_api is not None:

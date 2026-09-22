@@ -30,6 +30,7 @@ from ..domains.tts import api as tts_api
 from ..domains.tts import stream as tts_stream
 from ..domains.vad import api as vad_api
 from ..domains.vad import stream as vad_stream
+from ..domains.file2md import api as file2md_api
 try:
     from ..domains.vlm import api as vlm_api
 except Exception:
@@ -43,6 +44,7 @@ except ImportError:
 from ..gateway.errors import setup_exception_handlers
 from ..gateway.health import router as health_router
 from ..gateway.system_stats import router as system_stats_router
+from ..common.streams import RequestBodySizeLimitMiddleware
 from .lifespan import lifespan
 from .settings import get_settings
 
@@ -82,6 +84,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-RTF", "X-Duration-Ms", "X-Processing-Ms", "X-Sample-Rate"],
+)
+app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    max_bytes=settings.limits.max_upload_bytes,
+    paths={
+        "/v1/asr/recognize",
+        "/v1/vad/analyze",
+        "/v1/vad/segments",
+        "/v1/file2md/convert",
+    },
 )
 
 
@@ -155,6 +167,7 @@ app.include_router(tts_api.router, prefix="/v1/tts", tags=["TTS"])
 app.include_router(tts_stream.router, prefix="/v1/tts", tags=["TTS"])
 app.include_router(vad_api.router, prefix="/v1/vad", tags=["VAD"])
 app.include_router(vad_stream.router, prefix="/v1/vad", tags=["VAD"])
+app.include_router(file2md_api.router, prefix="/v1/file2md", tags=["File2MD"])
 app.include_router(llm_api.router, prefix="/v1/llm", tags=["LLM"])
 app.include_router(llm_api.compat_router, tags=["LLM"])
 app.include_router(embed_api.router, prefix="/v1/embed", tags=["Embed"])
@@ -182,6 +195,7 @@ async def root():
             "rerank": "/v1/rerank",
             "vlm": "/v1/vlm",
             "vision": "/v1/vision",
+            "file2md": "/v1/file2md",
         },
     }
 

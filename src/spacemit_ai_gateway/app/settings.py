@@ -8,7 +8,7 @@ import os
 from importlib import resources
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -32,6 +32,24 @@ class AuthConfig(BaseModel):
 
 class LimitsConfig(BaseModel):
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB
+
+
+class File2mdConfig(BaseModel):
+    provider: Literal["k3-int8", "cpu"] = "k3-int8"
+    model_dir: Optional[str] = None
+    output_dir: str = "~/.cache/spacemit-ai-gateway/file2md/output"
+    method: Literal["auto", "text", "ocr"] = "auto"
+    language: str = "ch"
+    threads: int = Field(default=4, gt=0, le=64)
+    cpu_threads: int = Field(default=8, gt=0, le=64)
+    pdf_dpi: int = Field(default=144, gt=0, le=600)
+    processing_window_size: int = Field(default=8, gt=0, le=128)
+    formula: bool = True
+    table: bool = True
+    flowchart: bool = False
+    image_ocr_caption: bool = False
+    web_image_ocr: bool = True
+    save_images: bool = True
 
 
 # ---- ASR ----
@@ -222,6 +240,7 @@ class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    file2md: File2mdConfig = Field(default_factory=File2mdConfig)
     asr: AsrConfig = Field(default_factory=AsrConfig)
     tts: TtsConfig = Field(default_factory=TtsConfig)
     vad: VadConfig = Field(default_factory=VadConfig)

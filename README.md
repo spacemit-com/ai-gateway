@@ -1,13 +1,13 @@
 # SpacemiT AI Gateway
 
-SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank 统一 HTTP + WebSocket API 服务，运行于 K3 RISC-V 嵌入式设备。
+SpacemiT AI Gateway — ASR / TTS / VAD / Vision / LLM / Embed / Rerank / File2MD 统一 HTTP + WebSocket API 服务，运行于 K3 RISC-V 嵌入式设备。
 
 ## 安装
 
 生产部署用 `.deb` 包一键完成 apt 依赖、Python 环境、systemd 服务注册启动，无需手动操作。源码开发或调试请参考 [软件调试](#软件调试) 章节。
 
 
-`spacemit-ai-gateway` 已发布到 SpacemiT 内部 apt 源。包内带完整的安装钩子：apt 系统依赖随 `debian/control` 的 `Depends` 字段自动解析；postinst 脚本会在 `/opt/spacemit-ai-gateway/venv` 创建虚拟环境，并按 `/opt/spacemit-ai-gateway/requirements-runtime.txt` 从 SpacemiT GitLab PyPI 拉取锁定版本的 `spacemit-asr/tts/vad/audio/vision` 与 `spacemit-ai-gateway` wheel；systemd 单元 `spacemit-ai-gateway.service` 由 `dh_installsystemd` 自动注册并启动。
+`spacemit-ai-gateway` 已发布到 SpacemiT 内部 apt 源。包内带完整的安装钩子：apt 系统依赖随 `debian/control` 的 `Depends` 字段自动解析；postinst 脚本会在 `/opt/spacemit-ai-gateway/venv` 创建虚拟环境，并按 `/opt/spacemit-ai-gateway/requirements-runtime.txt` 从 SpacemiT GitLab PyPI 拉取锁定版本的 `spacemit-asr/tts/vad/audio/vision/file2md` 与 `spacemit-ai-gateway` wheel；systemd 单元 `spacemit-ai-gateway.service` 由 `dh_installsystemd` 自动注册并启动。
 `.deb` 同时安装运行配置到 `/opt/spacemit-ai-gateway/configs/`，安装模型清单 schema 到 `/opt/spacemit-ai-gateway/schema/`。
 
 ```bash
@@ -53,10 +53,19 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 | `python3-spacemit-ort` | ONNX Runtime Python 绑定 |
 | `spacemit-onnxruntime` | SpaceMIT EP 加速推理 |
 
+File2MD 的 PDF、Office 和网页资源处理还需要以下 Bianbu 运行时包。它们已经写入
+`debian/control`，通过 `.deb` 安装时会由 apt 自动解析；源码运行时请手动安装：
+
+```bash
+sudo apt install libpoppler-cpp3 libarchive13t64 libxml2-16 libcurl4t64 \
+    libreoffice chromium python3-xlrd
+```
+
+
 ### Python 依赖
 
 `spacemit-ai-gateway` wheel 和 `spacemit-asr`、`spacemit-tts`、
-`spacemit-vad`、`spacemit-audio`、`spacemit-vision` 等 Python 包统一发布到 SpacemiT GitLab PyPI：
+`spacemit-vad`、`spacemit-audio`、`spacemit-vision`、`spacemit-file2md` 等 Python 包统一发布到 SpacemiT GitLab PyPI：
 
 - 包页面：https://git.spacemit.com/archive/pypi/-/packages
 - pip simple index：`https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple`
@@ -66,7 +75,7 @@ sudo apt install opencv-spacemit espeak-ng llama.cpp-tools-spacemit \
 ```bash
 python -m pip install \
     --index-url https://git.spacemit.com/api/v4/projects/33/packages/pypi/simple \
-    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision
+    spacemit-asr spacemit-tts spacemit-vad spacemit-audio spacemit-vision spacemit-file2md
 ```
 
 安装 `spacemit-ai-gateway` wheel 时只会自动拉取这些 SpacemiT Python 依赖，不会安装 apt 系统包。运行前必须先安装上一节列出的系统依赖：
@@ -127,13 +136,16 @@ curl -s localhost:18790/healthz | jq .
 
 | 文件 | 说明 |
 |------|------|
-| `base.yaml` | 默认配置（ASR/TTS/VAD 参数、端口、鉴权等） |
+| `base.yaml` | 默认配置（各域参数、端口、鉴权和上传限制） |
 | `dev.yaml` | 开发环境覆盖 |
+| `file2md.yaml` | File2MD 独立配置示例（需作为完整配置文件通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定） |
 | `vision/` | 视觉模型 YAML（`model_id` 与文件名一致）：YOLOv8/YOLOv11 的 n/s/m 及 `-pose`/`-seg` 变体、YOLOv5 人脸/手势、ResNet、情绪、ArcFace、ByteTrack、OC-SORT 等 |
 
 模型清单 schema 位于 `schema/`，供外部工具读取；`.deb` 安装路径为
 `/opt/spacemit-ai-gateway/schema/`。
 ASR/TTS 默认只预载 `sensevoice` 和 `matcha_zh_en`，避免启动时同时加载多个语音模型占用内存。
+File2MD 引擎采用懒加载：服务启动不会初始化约 1.7 GB 的文档模型，首次转换时按
+`file2md.provider` 初始化，也可以提前调用 `POST /v1/file2md/models/load` 预热。
 
 默认使用 wheel 包内置配置，和启动所在目录无关。需要覆盖配置时，通过环境变量显式指定配置文件：
 
@@ -147,6 +159,17 @@ SPACEMIT_AI_GATEWAY_CONFIG=configs/dev.yaml spacemit-ai-gateway
 SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 ```
 
+### 配置文件覆盖规则
+
+File2MD 的主要配置位于 `file2md` 节：
+
+默认部署读取 `configs/base.yaml`，其中已经包含完整的 `file2md` 节；
+`configs/file2md.yaml` 只是一个独立配置示例，不会与 `base.yaml` 自动合并。
+如果通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定它，程序只读取该文件，其他配置使用
+代码默认值。指定独立配置文件时，需确保其中包含所有启用域（如 ASR/TTS/VAD）
+的完整配置节，否则这些域将回退到代码默认值。生产部署建议直接修改 `base.yaml`
+的 `file2md` 节，或指定一个包含所需完整配置的独立 YAML 文件。
+
 ### 模型缓存与自动加载
 
 模型文件统一放在 `~/.cache/models/<domain>/`，和 ASR/TTS/VAD/Vision 的缓存布局保持一致：
@@ -159,10 +182,17 @@ SPACEMIT_AI_GATEWAY_ASR__BACKEND=qwen3-asr spacemit-ai-gateway
 | LLM | `~/.cache/models/llm` |
 | Embed | `~/.cache/models/embed` |
 | Rerank | `~/.cache/models/rerank` |
+| File2MD | `~/.cache/models/file2md` |
 
+**说明：** File2MD 模型缓存目录与转换输出目录相互独立。模型通常缓存于上表目录；
+转换生成的 Markdown、图片等文件默认写入 `~/.cache/spacemit-ai-gateway/file2md/output`，
+可通过 `file2md.output_dir` 覆盖。`file2md.model_dir: null` 表示不强制指定模型目录，
+由 File2MD SDK 按其默认规则决定实际模型路径；需要固定路径时请显式设置 `model_dir`。
+如果通过 `SPACEMIT_AI_GATEWAY_CONFIG` 指定独立 YAML 文件，该文件会替换 `base.yaml`；
+请在其中写入所有需要启用的域配置，否则这些域会使用代码默认值。
 Gateway 自己的 SQLite 注册表放在 `~/.cache/spacemit-ai-gateway/<domain>/db.sqlite`，不存放模型文件。
 
-LLM / Embed / Rerank 的 `backend` 配置非空时，服务启动会尝试自动下载并加载默认模型。K3 8GB 内存环境不建议同时自动加载多个 GGUF 模型；如果只需要运行管理接口或按需加载模型，可关闭默认自动加载：
+LLM / Embed / Rerank 的 `backend` 配置非空时，服务启动会尝试自动下载并加载默认模型；File2MD 则保持懒加载。K3 8GB 内存环境不建议同时自动加载多个 GGUF 模型；如果只需要运行管理接口或按需加载模型，可关闭默认自动加载：
 
 ```yaml
 llm:
@@ -174,6 +204,31 @@ rerank:
 ```
 
 按需加载时再调用对应域的 `POST /models/load` 或 `POST /models/switch`。
+
+```yaml
+file2md:
+  provider: k3-int8       # k3-int8（端侧推荐）或 cpu
+  method: auto             # auto、text、ocr
+  language: ch
+  threads: 4
+  cpu_threads: 8
+  pdf_dpi: 144
+  processing_window_size: 8
+  formula: true
+  table: true
+  flowchart: false
+  image_ocr_caption: false
+  web_image_ocr: true
+  save_images: true
+limits:
+  max_upload_bytes: 52428800  # 50 MiB
+```
+
+`POST /v1/file2md/convert` 是 multipart 上传接口，网关会优先按请求的
+`Content-Length` 快速拒绝超限请求；对于没有 `Content-Length` 的 chunked 上传，仍会
+按 1 MiB 分块写入临时文件，并在累计超过 `max_upload_bytes` 时立即返回 HTTP 413。
+转换结束、失败或超限后临时文件都会清理。ASR/TTS/VAD 等现有上传接口也复用
+`Content-Length` 检查；File2MD 额外覆盖了 chunked 上传场景。
 
 ### 鉴权与 IP 白名单
 
@@ -239,6 +294,7 @@ window.API_BASES = {
   llm:    'http://<后端IP>:18790',
   embed:  'http://<后端IP>:18790',
   rerank: 'http://<后端IP>:18790',
+  file2md: 'http://<后端IP>:18790',
 };
 ```
 
@@ -296,6 +352,10 @@ spacemit-ai-gateway/
 │       │   └── adapters/       # 后端实现（sensevoice, qwen3_asr）
 │       ├── tts/                # 语音合成（matcha, kokoro）
 │       ├── vad/                # 语音活动检测（silero）
+│       ├── file2md/             # 文档转 Markdown（PDF/Office/图片/文本）
+│       │   ├── api.py           # multipart 转换及模型/运维路由
+│       │   ├── service.py       # 引擎生命周期、串行转换和统计
+│       │   └── schemas.py       # 请求选项与响应模型
 │       ├── llm/                # 大语言模型
 │       │   ├── api.py          # OpenAI/Ollama/Anthropic 兼容路由
 │       │   ├── service.py      # 模型生命周期管理（SQLite 注册表）
@@ -407,6 +467,50 @@ pytest tests/
 | 运维 | GET/PATCH | `/engine` | 引擎配置 |
 | 运维 | GET | `/stats` | 性能指标 |
 | 运维 | GET | `/info` | 运行态摘要 |
+
+### File2MD 文档转 Markdown (`/v1/file2md`)
+
+支持 PDF、Office、图片和文本转 Markdown。
+
+| 类别 | 方法 | 端点 | 说明 |
+|------|------|------|------|
+| 核心 | POST | `/convert` | 文档转 Markdown |
+| 模型 | GET | `/models` | 模型状态 |
+| 模型 | POST | `/models/load` | 预加载模型 |
+| 模型 | POST | `/models/unload` | 卸载模型 |
+| 运维 | GET/PATCH | `/params` | 转换参数 |
+| 运维 | GET/PATCH | `/engine` | 引擎配置 |
+| 运维 | GET | `/stats` | 转换统计 |
+| 运维 | GET | `/healthz` | 健康检查 |
+
+```bash
+# 基本转换（响应包含 markdown、manifest、page_metrics 等字段）
+curl -F file=@report.pdf \
+  http://127.0.0.1:18790/v1/file2md/convert
+
+# 覆盖本次请求的转换选项；不会修改持久化配置
+curl -F file=@report.pdf -F method=ocr -F language=ch \
+  -F formula=false -F start_page=0 -F end_page=2 \
+  http://127.0.0.1:18790/v1/file2md/convert
+
+# 模型和运行态管理
+curl http://127.0.0.1:18790/v1/file2md/healthz
+curl http://127.0.0.1:18790/v1/file2md/models
+curl -X POST http://127.0.0.1:18790/v1/file2md/models/load
+curl -X POST http://127.0.0.1:18790/v1/file2md/models/unload
+curl http://127.0.0.1:18790/v1/file2md/stats
+```
+
+转换选项也可通过 `PATCH /v1/file2md/params` 更新；引擎相关项（`provider`、
+`model_dir`、线程数、`pdf_dpi` 等）通过 `PATCH /v1/file2md/engine` 更新。引擎已初始化
+后修改这些项会标记 `pending_restart: true`，需先卸载再加载模型才能生效。
+`/models`、`/healthz`、`/params`、`/engine`、`/stats` 的 JSON 结构可直接从
+`/openapi.json` 获取。
+
+转换响应中的 `success` 表示文档主体转换是否成功；如果引擎返回的 manifest
+不是合法 JSON，响应仍会保留主体结果，同时在 `manifest_error` 中说明元数据
+解析失败，响应还会在 `manifest_json_raw` 中保留引擎原始 JSON，调用方可据此
+决定是否需要重试或降级处理。
 
 ### Vision 视觉处理 (`/v1/vision`)
 
@@ -522,7 +626,7 @@ pytest tests/
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + Embed + Rerank + Vision） |
+| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + Embed + Rerank + Vision + File2MD） |
 
 ### 多后端支持
 

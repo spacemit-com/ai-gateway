@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..domains.tts.stream import TtsStreamHandler
     from ..domains.vad.service import VadService
     from ..domains.vad.stream import VadStreamHandler
+    from ..domains.file2md.service import File2mdService
 
 
 def _state_attr(obj, name: str, domain: str):
@@ -52,3 +53,8 @@ def get_vad_service(request: Request) -> "VadService":
 
 def get_vad_stream_handler(websocket: WebSocket) -> "VadStreamHandler":
     return _state_attr(websocket.app, "vad_stream_handler", "VAD")
+
+
+# ---- File2MD ----
+def get_file2md_service(request: Request) -> "File2mdService":
+    return _state_attr(request.app, "file2md_service", "File2MD")
