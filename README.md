@@ -533,7 +533,7 @@ ASR / TTS / VAD / Vision / LLM / Embed / Rerank 均支持多后端，可通过 `
 - **VAD**: `silero`（默认）
 - **Vision**: 多组 `configs/vision/*.yaml`（YOLOv8/v11 多档位与 pose/seg、YOLOv5 人脸/手势、ResNet、跟踪等），通过 `model_id` / `models/load` 管理
 - **LLM**: 16 个预设 GGUF 模型（Qwen3/3.5、Qwen2.5、DeepSeek、GLM 等），支持运行时注册远程 API 或本地模型
-- **Embed**: 5 个预设 GGUF 嵌入模型（BGE、Jina、Nomic、Qwen3 Embedding），支持运行时注册远程 API 或本地模型
+- **Embed**: 6 个预设 GGUF 嵌入模型（BGE、Jina、Nomic、Qwen3 Embedding），支持运行时注册远程 API 或本地模型
 - **Rerank**: 2 个预设 GGUF 重排序模型（BGE Reranker、Qwen3 Reranker），支持运行时注册远程 API 或本地模型
 
 ## License
