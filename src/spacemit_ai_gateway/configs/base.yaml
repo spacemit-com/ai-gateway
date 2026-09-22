@@ -151,6 +151,8 @@ embed:
       url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Nomic-Embed-Text-V2-Moe-Q4_0.gguf
     - id: qwen3-embedding-0.6b-q4_0
       url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Qwen3-Embedding-0.6B-Q4_0.gguf
+    - id: qwen3-embedding-0.6b-q8_0
+      url: https://archive.spacemit.com/spacemit-ai/model_zoo/embed/Qwen3-Embedding-0.6B-Q8_0.gguf
 
 rerank:
   backend: qwen3-reranker-0.6b-q4_0                # 默认后端（可选）
