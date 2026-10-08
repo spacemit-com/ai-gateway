@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from .schemas import DeregisterRequest, LoadRequest, RegisterRequest, SwitchRequest, UnloadRequest
 from .service import LLMService
+from ...common.error_log import record_fault
+from ...common.errors import DomainError
+from ...common.proxy_response import passthrough_response, stream_error_frame, stream_protocol
 from ...gateway.auth import verify_api_key
 
 router = APIRouter()
@@ -142,6 +145,9 @@ async def _proxy(path: str, request: Request, stream: bool):
             try:
                 async for chunk in response.aiter_bytes():
                     yield chunk
+            except DomainError as exc:  # 推理进程中途崩溃等：流内补一帧错误
+                await record_fault(exc)
+                yield stream_error_frame(exc, stream_protocol(path))
             finally:
                 await response.aclose()
                 await client.aclose()
@@ -156,11 +162,7 @@ async def _proxy(path: str, request: Request, stream: bool):
         content = await response.aread()
         await response.aclose()
         await client.aclose()
-        return JSONResponse(
-            content=json.loads(content),
-            status_code=response.status_code,
-            headers={"X-Request-ID": request_id},
-        )
+        return passthrough_response(content, response, request_id)
 
 
 async def _smart_proxy(path: str, request: Request):
@@ -353,6 +355,9 @@ async def _ollama_chat_proxy(request: Request):
                     "done": True,
                     "done_reason": "stop",
                 }).encode() + b"\n"
+            except DomainError as exc:  # 推理进程中途崩溃等：以错误帧结束，不再发 done_reason=stop
+                await record_fault(exc)
+                yield stream_error_frame(exc, "ollama")
             finally:
                 await response.aclose()
                 await client.aclose()
@@ -371,7 +376,7 @@ async def _ollama_chat_proxy(request: Request):
             openai_resp = json.loads(content)
             ollama_resp = _openai_to_ollama_response(openai_resp, model, stream=False)
         except Exception:
-            return JSONResponse(content=json.loads(content), status_code=response.status_code)
+            return passthrough_response(content, response)
         return JSONResponse(content=ollama_resp, status_code=response.status_code, headers={"X-Request-ID": request_id})
 
 
@@ -408,7 +413,7 @@ async def _ollama_generate_proxy(request: Request):
         openai_resp = json.loads(content)
         ollama_resp = _openai_to_ollama_generate_response(openai_resp, model)
     except Exception:
-        return JSONResponse(content=json.loads(content), status_code=response.status_code)
+        return passthrough_response(content, response)
     return JSONResponse(content=ollama_resp, status_code=response.status_code, headers={"X-Request-ID": request_id})
 
 

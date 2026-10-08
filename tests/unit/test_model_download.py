@@ -264,6 +264,8 @@ async def test_matcha_worker_start_failure_falls_back_to_mock(monkeypatch, tmp_p
 
     monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
     monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+    # 回退 mock 只在未安装 SDK 时发生；装了 SDK 的情况见 test_model_download_api
+    monkeypatch.setattr(matcha, "sdk_installed", lambda name: False)
 
     backend = matcha.MatchaBackend(
         TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))
@@ -337,6 +339,8 @@ async def test_matcha_worker_warmup_failure_stops_worker(monkeypatch, tmp_path):
 
     monkeypatch.setattr(matcha, "_ensure_model_assets", lambda *a, **kw: None)
     monkeypatch.setattr(matcha, "NativeTtsWorker", FakeWorker)
+    # 回退 mock 只在未安装 SDK 时发生；装了 SDK 的情况见 test_model_download_api
+    monkeypatch.setattr(matcha, "sdk_installed", lambda name: False)
 
     backend = matcha.MatchaBackend(
         TtsConfig(backend="matcha_zh_en", model_dir=str(tmp_path / "tts"))

@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from ..common.backend_selection import select_default_backend
+from ..common.error_log import close_log, open_log
 from ..common.event_store import EventStore
 from ..common.sessions import SessionStore
 from ..domains.asr.adapters import ASR_REGISTRY
@@ -118,22 +119,26 @@ async def lifespan(app: FastAPI):
         )
 
     event_store = EventStore()
+    open_log()  # 模型故障记录，供 GET /v1/errors/recent 查询
 
-    asr_service = AsrService({}, asr_default, asr_store, config=settings.asr)
-    tts_service = TtsService({}, tts_default, tts_store, config=settings.tts)
-    vad_service = VadService({}, vad_default, config=settings.vad)
-    llm_service = LLMService(llm_backends, llm_default, config=settings.llm)
+    download = settings.download
+    if not download.tls_verify:
+        logger.warning("model download TLS certificate verification is disabled (download.tls_verify=false)")
+    asr_service = AsrService({}, asr_default, asr_store, config=settings.asr, download_config=download)
+    tts_service = TtsService({}, tts_default, tts_store, config=settings.tts, download_config=download)
+    vad_service = VadService({}, vad_default, config=settings.vad, download_config=download)
+    llm_service = LLMService(llm_backends, llm_default, config=settings.llm, download_config=download)
     await llm_service.initialize()
-    embed_service = EmbedService(embed_backends, embed_default, config=settings.embed)
+    embed_service = EmbedService(embed_backends, embed_default, config=settings.embed, download_config=download)
     await embed_service.initialize()
-    rerank_service = RerankService(rerank_backends, rerank_default, config=settings.rerank)
+    rerank_service = RerankService(rerank_backends, rerank_default, config=settings.rerank, download_config=download)
     await rerank_service.initialize()
-    vlm_service = VlmService(vlm_backends, vlm_default, config=settings.vlm)
+    vlm_service = VlmService(vlm_backends, vlm_default, config=settings.vlm, download_config=download)
     await vlm_service.initialize()
 
     if vision_api is not None:
         try:
-            vision_api.setup()
+            vision_api.setup(download)
             native = vision_api._adapter.native_available if vision_api._adapter else False
             logger.info("[lifespan] vision initialized (native=%s)", native)
         except Exception as exc:
@@ -183,4 +188,5 @@ async def lifespan(app: FastAPI):
                 logger.info("[lifespan] vision shutdown complete")
             except Exception as exc:
                 logger.warning("[lifespan] vision shutdown error: %s", exc)
+        close_log()
         logger.info("SpacemiT AI Gateway 已关闭")

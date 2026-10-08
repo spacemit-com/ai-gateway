@@ -11,9 +11,20 @@ from pathlib import Path
 import httpx
 
 from ....common.port_pool import port_pool
+from ....common.llama_process import spawn_logged
 from ....common.args_utils import merge_and_dedup_args
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_model_dir(path: Path) -> Path:
+    """VLM 压缩包自带同名顶层目录，解压到 models/vlm/<local_dir> 后是两层；config.json 在里层时进到里层。"""
+    if (path / "config.json").exists():
+        return path
+    subdirs = [p for p in path.iterdir() if p.is_dir()]
+    if len(subdirs) == 1 and (subdirs[0] / "config.json").exists():
+        return subdirs[0]
+    return path
 
 
 class VlmLlamaAdapter:
@@ -35,7 +46,12 @@ class VlmLlamaAdapter:
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
-    def start(self, model_path: Path, extra_args: list[str] | None = None) -> None:
+    def start(
+        self,
+        model_path: Path,
+        extra_args: list[str] | None = None,
+        log_path: Path | None = None,
+    ) -> None:
         """Start llama-server for VLM inference.
 
         Args:
@@ -50,19 +66,16 @@ class VlmLlamaAdapter:
         gguf_path = model_path
 
         if model_path.is_dir():
-            model_dir = model_path
-            gguf_path = self._find_gguf_file(model_path)
+            model_dir = resolve_model_dir(model_path)
+            gguf_path = self._find_gguf_file(model_dir)
             if not gguf_path:
                 raise RuntimeError(f"No GGUF file found in {model_path}")
 
         cmd = self._build_command(gguf_path, model_dir, extra_args)
 
         logger.info("Starting VLM llama-server: %s", " ".join(cmd))
-        self._process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # stdout/stderr 写入 log_path，启动失败时据此分类（见 common/llama_process.py）
+        self._process = spawn_logged(cmd, log_path)
 
     def _find_gguf_file(self, model_dir: Path) -> Path | None:
         """Find the text model GGUF file in the model directory."""

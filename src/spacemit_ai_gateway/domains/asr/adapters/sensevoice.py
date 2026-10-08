@@ -14,8 +14,10 @@ from typing import List, Optional
 import numpy as np
 
 from ....app.settings import AsrConfig
-from ....common.errors import AsrBackendUnavailable, AsrInvalidAudio
+from ....common.downloader import Artifact, ModelAssets
+from ....common.errors import AsrBackendUnavailable, AsrInvalidAudio, ModelLoadFailed
 from ....common.model_download import ensure_archive_model, expand_path
+from ....common.sdk import sdk_installed
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo
 from .base import (
@@ -38,6 +40,19 @@ _REQUIRED_MODEL_FILES = (
     "am.mvn",
     "sensevoice_decoder_model.onnx",
 )
+
+
+def model_assets(config: AsrConfig) -> ModelAssets:
+    """下载接口用：sensevoice 压缩包解压到 model_dir，取 archive_subdir 下的内容。"""
+    model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
+    asset = _get_model_asset(config.models, "sensevoice")
+    return ModelAssets("sensevoice", [Artifact(
+        url=asset.get("url") or _MODEL_URL,
+        path=model_dir,
+        archive=True,
+        archive_subdir=asset.get("archive_subdir") or "sensevoice",
+        required=_REQUIRED_MODEL_FILES,
+    )])
 
 
 def _lang_from_str(language: str):
@@ -90,6 +105,9 @@ class SenseVoiceBackend(AsrBackend):
                 required_paths=_REQUIRED_MODEL_FILES,
             )
         except Exception as e:
+            if sdk_installed("spacemit_asr"):
+                # 装了 SDK 的设备上不能用 mock 假结果冒充成功
+                raise ModelLoadFailed(f"ASR model files unavailable: {e}") from e
             logger.exception("ASR model check/download failed (%s), falling back to mock", e)
             self._mock = True
             self._state = BackendReadyState.DEGRADED
@@ -119,9 +137,8 @@ class SenseVoiceBackend(AsrBackend):
             self._engine.initialize()
             self._state = BackendReadyState.WARMING_UP
         except Exception as e:
-            logger.exception("ASR engine init failed (%s), falling back to mock", e)
-            self._mock = True
-            self._state = BackendReadyState.DEGRADED
+            logger.exception("ASR engine init failed: %s", e)
+            raise ModelLoadFailed(f"ASR engine init failed: {e}") from e
 
     @property
     def backend_name(self) -> str:

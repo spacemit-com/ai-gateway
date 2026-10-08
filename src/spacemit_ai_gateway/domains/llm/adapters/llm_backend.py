@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from ....app.settings import LlmConfig
+from ....common.llama_process import start_and_wait
 from .base import LlmBackend
 from .llama import LlamaAdapter
 from .remote import RemoteAdapter
@@ -26,11 +27,7 @@ class LlmBackendImpl(LlmBackend):
     async def start_model(self, model_id: str, model_path: Path, extra_args: list[str]) -> None:
         """启动 llama-server，健康检查通过后注册 adapter。"""
         adapter = LlamaAdapter(host=self._config.host, default_args=self._config.default_args)
-        adapter.start(model_path, extra_args=extra_args)
-        ready = await adapter.health_check(timeout=120)
-        if not ready:
-            adapter.stop()
-            raise RuntimeError(f"llama-server failed to start for model '{model_id}'")
+        await start_and_wait(adapter, model_id, model_path, extra_args, self._config, timeout=120)
         self._adapters[model_id] = adapter
 
     async def stop_model(self, model_id: str) -> None:

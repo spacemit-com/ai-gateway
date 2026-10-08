@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 import yaml
 
+from ...common.downloader import Artifact, ModelAssets
 from .adapters.native import NativeAdapter, ServiceError
 from .schemas import (
     ErrorCode,
@@ -276,6 +277,17 @@ def _scan_config_directory(config_dir: Path) -> Dict[str, Dict[str, Any]]:
             continue
 
     return discovered
+
+
+def vision_model_assets(model_id: str) -> Optional[ModelAssets]:
+    """下载接口用：KNOWN_MODELS 里登记了下载地址的模型。"""
+    known = KNOWN_MODELS.get(model_id)
+    if not known or not known.get("models"):
+        return None
+    return ModelAssets(
+        model_id,
+        [Artifact(entry["url"], Path(entry["dest"]).expanduser()) for entry in known["models"]],
+    )
 
 
 def _get_all_known_models() -> Dict[str, Dict[str, Any]]:

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from .adapters.native import NativeAdapter, ServiceError
 from .models import ManagedModel, ModelRegistry
+from .service import _inference_failed
 from .schemas import (
     ClassifyItem,
     DetectionItem,
@@ -158,7 +159,7 @@ class StreamSessionManager:
                 iou=session.iou,
             )
             if not ok:
-                raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, "stream frame inference failed")
+                raise _inference_failed(session.model_id, "stream frame inference failed")
 
             raw_items = self._extract_raw_items(raw_results)
             caps = session.managed.info.capabilities if session.managed.info else []
@@ -185,7 +186,7 @@ class StreamSessionManager:
         except ServiceError:
             raise
         except Exception as exc:
-            raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, f"stream frame error: {exc}") from exc
+            raise _inference_failed(session.model_id, f"stream frame error: {exc}") from exc
 
     def _process_mock(
         self, session: StreamSession, image_bytes: bytes, timestamp_ms: Optional[int],

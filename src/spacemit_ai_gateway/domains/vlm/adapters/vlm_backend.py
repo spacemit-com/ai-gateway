@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from ....app.settings import VlmConfig
+from ....common.llama_process import start_and_wait
 from .base import VlmBackend
 from .llama import VlmLlamaAdapter
 from .remote import RemoteAdapter
@@ -26,14 +27,7 @@ class VlmBackendImpl(VlmBackend):
         if model_id in self._adapters:
             await self.stop_model(model_id)
         adapter = VlmLlamaAdapter(host=self._config.host, default_args=self._config.default_args)
-        try:
-            adapter.start(model_path, extra_args=extra_args)
-            ready = await adapter.health_check(timeout=120)
-            if not ready:
-                raise RuntimeError(f"VLM llama-server failed to start for model '{model_id}'")
-        except Exception:
-            adapter.stop()
-            raise
+        await start_and_wait(adapter, model_id, model_path, extra_args, self._config, timeout=120)
         self._adapters[model_id] = adapter
 
     async def stop_model(self, model_id: str) -> None:

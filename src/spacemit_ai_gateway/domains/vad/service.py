@@ -7,16 +7,20 @@ import logging
 import time
 from typing import Dict, List, Optional
 
-from ...app.settings import VadConfig
+from ...app.settings import DownloadConfig, VadConfig
 from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
     ModelAlreadyLoaded,
     ModelNotLoaded,
     ModelUnknown,
 )
+from ...common.downloader import DownloadTracker, ModelAssets
+from ...common.error_log import mark_fault
 from ...common.ready_state import BackendReadyState
+from ...common.sdk import sdk_installed
 from ...common.schemas import ModelInfo
 from .adapters import VAD_REGISTRY, VadBackend, VadStreamSession
+from .adapters.silero import model_assets as _silero_assets
 from .schemas import (
     AnalyzeResponse,
     HealthResponse,
@@ -36,11 +40,14 @@ logger = logging.getLogger(__name__)
 
 
 class VadService:
+    domain = "vad"  # 用于模型故障记录
+
     def __init__(
         self,
         backends: Dict[str, VadBackend],
         default: str,
         config: Optional[VadConfig] = None,
+        download_config: Optional[DownloadConfig] = None,
     ):
         self._backends = backends
         self._default = default
@@ -62,6 +69,14 @@ class VadService:
         }
         self._engine_pending_restart = False
         self._load_lock = asyncio.Lock()
+        self.downloads = DownloadTracker(
+            "vad", self._model_assets, lambda: list(self._allowed_backends), download_config
+        )
+
+    def _model_assets(self, model_id: str) -> Optional[ModelAssets]:
+        if model_id != "silero":
+            return None
+        return _silero_assets(self._config.model_copy(update={"backend": model_id}))
 
     @property
     def backend(self) -> VadBackend:
@@ -78,6 +93,13 @@ class VadService:
 
     async def _ensure_backend(self, model: Optional[str] = None) -> VadBackend:
         name = self._model_id(model)
+        try:
+            return await self._load_backend(name)
+        except Exception as exc:
+            mark_fault(exc, self.domain, name)  # 下载 / 加载失败归到这个模型
+            raise
+
+    async def _load_backend(self, name: str) -> VadBackend:
         async with self._load_lock:
             existing = self._backends.get(name)
             if existing is not None and existing.state.is_serving:
@@ -96,6 +118,9 @@ class VadService:
                     details={"available": self._allowed_backends},
                 )
 
+            # 先下载（失败直接报下载错误码），再卸载旧模型
+            if self.downloads.supports(name) and sdk_installed("spacemit_vad"):
+                await self.downloads.ensure(name)
             await self._shutdown_loaded_backends()
             cfg = self._config.model_copy(update={"backend": name})
             logger.info("loading VAD backend '%s' on demand", name)
@@ -119,8 +144,9 @@ class VadService:
         try:
             backend = await self._ensure_backend()
             a = await backend.analyze(audio, sample_rate)
-        except Exception:
+        except Exception as exc:
             self._stats["total_errors"] += 1
+            mark_fault(exc, self.domain, self._model_id(None))
             raise
         self._stats["total_requests"] += 1
         self._stats["total_processing_ms"] += a.processing_ms
@@ -136,7 +162,11 @@ class VadService:
     async def segment(self, audio: bytes, sample_rate: int) -> SegmentsResponse:
         start = time.perf_counter()
         backend = await self._ensure_backend()
-        segments, duration_ms = await backend.segment(audio, sample_rate)
+        try:
+            segments, duration_ms = await backend.segment(audio, sample_rate)
+        except Exception as exc:
+            mark_fault(exc, self.domain, self._model_id(None))
+            raise
         processing_ms = (time.perf_counter() - start) * 1000
 
         speech_duration = sum(s.end_ms - s.start_ms for s in segments)
@@ -164,6 +194,7 @@ class VadService:
                 id=name,
                 name=backend.backend_name if backend else name,
                 loaded=bool(backend and backend.is_ready),
+                downloaded=self.downloads.is_ready(name) if self.downloads.supports(name) else None,
             ))
         return models
 
@@ -284,4 +315,5 @@ class VadService:
         )
 
     async def shutdown(self) -> None:
+        await self.downloads.shutdown()
         await self._shutdown_loaded_backends()

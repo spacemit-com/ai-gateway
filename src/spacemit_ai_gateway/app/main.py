@@ -42,6 +42,7 @@ except ImportError:
     logging.getLogger(__name__).warning("Vision domain not available (missing dependencies), skipping")
 from ..gateway.errors import setup_exception_handlers
 from ..gateway.health import router as health_router
+from ..gateway.error_codes import router as error_codes_router
 from ..gateway.system_stats import router as system_stats_router
 from .lifespan import lifespan
 from .settings import get_settings
@@ -149,6 +150,7 @@ setup_exception_handlers(app)
 
 app.include_router(health_router)
 app.include_router(system_stats_router)
+app.include_router(error_codes_router)
 app.include_router(asr_api.router, prefix="/v1/asr", tags=["ASR"])
 app.include_router(asr_stream.router, prefix="/v1/asr", tags=["ASR"])
 app.include_router(tts_api.router, prefix="/v1/tts", tags=["TTS"])

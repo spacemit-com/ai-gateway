@@ -152,6 +152,34 @@ async def unload_model(
     return ModelUnloadResponse(**data)
 
 
+# ---- model download ----
+
+@router.post("/models/{model}/download", summary="开始下载模型")
+async def start_download(
+    model: str,
+    service: TtsService = Depends(get_tts_service),
+    _: None = Depends(verify_api_key),
+) -> dict:
+    return await service.downloads.start(model)
+
+
+@router.get("/models/{model}/download", summary="查询下载进度与失败原因")
+async def download_progress(
+    model: str,
+    service: TtsService = Depends(get_tts_service),
+) -> dict:
+    return service.downloads.status(model)
+
+
+@router.delete("/models/{model}/download", summary="取消下载（删除已下载部分）")
+async def cancel_download(
+    model: str,
+    service: TtsService = Depends(get_tts_service),
+    _: None = Depends(verify_api_key),
+) -> dict:
+    return await service.downloads.cancel(model)
+
+
 @router.post("/models/switch", response_model=ModelSwitchResponse, summary="切换默认模型")
 async def switch_model(
     body: ModelSwitchRequest,

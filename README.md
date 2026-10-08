@@ -175,6 +175,98 @@ rerank:
 
 按需加载时再调用对应域的 `POST /models/load` 或 `POST /models/switch`。
 
+### 模型下载
+
+8 个域都提供同一组下载接口（路径相对各域前缀，如 `/v1/llm`、`/v1/asr`、`/v1/vision`）：
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/models/{id}/download` | 开始下载（后台进行，立即返回） |
+| GET | `/models/{id}/download` | 查询状态、进度和失败原因 |
+| DELETE | `/models/{id}/download` | 取消下载，并删除已下载部分 |
+
+ASR/TTS/VAD/Vision 的 `GET /models` 返回 `downloaded` 字段；LLM/Embed/Rerank/VLM 的 `GET /models` 返回 `status`（`available`/`downloading`/`downloaded`/`error`/...）。
+ASR 的 `qwen3-asr` 不由 gateway 下载（返回 `download_not_supported`）。
+
+`GET .../download` 返回字段：`status`、`progress`（0–1）、`downloaded_bytes`、`total_bytes`、`checksum`（`verified`：md5 校验通过；`unavailable`：服务器没有 `.md5`，只校验了大小）、`error_code`、`error_message`、`retriable`、`resumable`（是否留有可续传的部分文件）。
+
+下载流程：
+
+1. **磁盘预检**：需要的空间 = 剩余待下载大小 + 压缩包解压估算 + `reserve_bytes`，不够直接返回 `disk_insufficient`，details 中给出 `required_bytes` / `free_bytes`。
+2. **断点续传**：下载写到 `<文件>.gwpart`，用 HTTP Range + ETag 续传。网络中断、gateway 重启后再次调用下载接口会从断点继续；服务器文件已变化时自动从头下载。
+3. **重定向保护**：拒绝 https→http 降级跳转，限制跳转次数（`max_redirects`）。
+4. **校验**：大小必须与服务器声明一致；服务器有 `<url>.md5` 时边下载边计算 md5，下载完比对，不一致就删除文件并返回 `checksum_mismatch`。
+5. **压缩包**：解压到临时目录，检查必需文件，再替换进模型目录，失败不会留下半成品；解压后删除压缩包。
+
+模型路径保持不变：仍是 `~/.cache/models/<domain>/` 下各 SDK 的默认位置，以运行 gateway 的用户的 HOME 为准。
+
+注意：
+
+- 以上下载保障按 archive.spacemit.com 的行为设计（支持 HEAD、提供 ETag、没有 md5 时返回 404）。通过 `register` 注册的第三方地址（如 ModelScope）不保证续传、磁盘预检和 md5 校验，可能直接下载失败。
+- Matcha TTS 由声码器和声学模型两个文件组成，`progress` 按文件分段计算，中途会回落；是否下载完成以 `status` 为准。
+
+```yaml
+# configs/base.yaml
+download:
+  tls_verify: true             # 校验服务器证书
+  reserve_bytes: 1073741824    # 下载后磁盘至少保留 1 GiB
+  archive_extract_ratio: 1.0   # 解压后体积估算 = 压缩包大小 × 该值
+  verify_md5: true
+  connect_timeout_s: 30
+  read_timeout_s: 60
+  max_redirects: 5
+```
+
+### 错误码
+
+所有接口的错误响应格式统一为 `{"error": <code>, "message", "retriable", "details"}`；Vision 保留原有整数 `code` 包装，额外带字符串字段 `error`。下载失败的 `error_code` 也取自同一清单。
+
+`GET /v1/errors` 返回完整清单，每项包含：错误码、阶段（`download`/`download_api`/`load`/`inference`/`request`）、HTTP 状态码、是否可重试、触发条件、建议处理。常用错误码：
+
+| 阶段 | 错误码 |
+|------|--------|
+| 下载 | `disk_insufficient`、`network_error`、`remote_http_error`、`tls_error`、`redirect_blocked`、`size_mismatch`、`checksum_mismatch`、`extract_failed`、`permission_denied`、`io_error` |
+| 加载 | `model_not_downloaded`、`model_downloading`、`load_oom`、`load_invalid_model`、`load_invalid_args`、`load_timeout`、`backend_missing`、`load_failed` |
+| 推理 | `model_not_loaded`、`backend_crashed`、`upstream_error`、`inference_failed`（Vision） |
+
+流式请求（`stream: true`）在响应头发出后失败时（如推理进程中途崩溃），HTTP 状态码已经是 200，错误以流里的最后一帧给出，帧内 `code` 同上表：
+
+| 接口 | 错误帧 |
+|------|--------|
+| OpenAI 兼容（`/chat/completions`、`/completions`、VLM） | `data: {"error": {"code", "message", "retriable", "details"}}` |
+| Anthropic `/v1/messages`、`/v1/responses` | `event: error` + `data: {"type": "error", ...}` |
+| Ollama `/api/chat` | `{"error", "code", "retriable", "done": true}` |
+
+本地模型为 `backend_crashed`（下一次请求会自动尝试重新拉起推理进程），remote 模型为 `upstream_error`。
+
+llama-server（LLM/Embed/Rerank/VLM）的输出写到 `~/.cache/spacemit-ai-gateway/<domain>/logs/<model>.log`（10 MiB 滚动，保留一份 `.log.1`）。加载失败和 `backend_crashed` 时，错误的 `details.log_tail` 附带最后几行日志，`details.log_path` 给出日志文件位置。
+
+### 模型故障记录
+
+`GET /v1/errors/recent` 返回最近发生的模型故障，用于集成方查询"哪个模型出了什么错"，新的在前：
+
+```bash
+curl -s 'localhost:18790/v1/errors/recent?domain=llm&model=qwen3-0.6b-q4_0&limit=20'
+```
+
+| 参数 | 说明 |
+|------|------|
+| `domain` | `asr` / `tts` / `vad` / `vision` / `llm` / `embed` / `rerank` / `vlm`，不填返回全部 |
+| `model` | 模型 ID |
+| `since` | Unix 时间戳，只返回之后的记录（轮询时传上次拿到的最大 `ts`） |
+| `limit` | 1–2000，默认 100 |
+
+```json
+{"errors": [{"ts": 1791367600.12, "time": "2026-10-07T18:06:40+08:00", "domain": "llm",
+             "model": "qwen3-0.6b-q4_0", "code": "backend_crashed", "phase": "inference",
+             "message": "...", "retriable": true, "details": {"log_tail": ["..."]}}]}
+```
+
+- 只记模型故障：`phase` 为 `download` / `load` / `inference` 的错误（`code` 含义见 `GET /v1/errors`）。调用方参数错误、未知模型、模型未下载 / 正在下载 / 未加载、用户取消下载不记。
+- 覆盖：八个域的下载失败（手动下载和加载时自动下载）、加载失败，以及 gateway 检测到的推理故障：推理进程崩溃或连不上（`backend_crashed`）、remote 模型的远程 API 连不上或中途断开（`upstream_error`），包括流式中途的错误帧和 ASR/TTS/VAD 的 WebSocket 流。推理引擎自己返回的错误响应（如上下文超长、参数错误）原样返回给调用方，不记录。Vision 记录 `/v1/vision/models/load`、`/v1/vision/inference` 和视频流 WebSocket；离线 jobs / sequence / feature 接口不记。
+- 同一次故障只记一条。加载时自动下载失败记为下载故障，不再另记一条加载故障。
+- 存储：`~/.cache/spacemit-ai-gateway/errors.sqlite`，只保留最近 2000 条，gateway 或开发板重启后仍可查询。数据库不可写时退回内存记录，不影响业务请求。
+
 ### 鉴权与 IP 白名单
 
 默认不启用鉴权或 IP 白名单。生产环境如需限制访问，先开启 `auth.enabled`，再配置 API Key 或外部白名单文件。白名单文件修改后自动热加载，无需重启：
@@ -196,6 +288,106 @@ auth:
 ```
 
 `auth.enabled: false` 时不限制访问；白名单文件为空或未配置时只校验 API Key。
+
+## 集成指南
+
+上层服务对接 gateway 的完整流程。字段细节见[模型下载](#模型下载)、[错误码](#错误码)、[模型故障记录](#模型故障记录)，各域全部接口见[功能概览](#功能概览)。
+
+```bash
+B=http://<设备 IP>:18790
+# 开启鉴权（auth.enabled: true）时，每个请求加 -H 'X-API-Key: <key>'
+```
+
+```
+GET /models 查是否已下载 → POST .../download 开始下载 → GET .../download 轮询到下载完成
+  → POST /models/load 加载（可省略，Vision 除外） → 推理 → 失败时按错误码处理，事后用 /v1/errors/recent 查
+```
+
+### 两类域的差异
+
+| | LLM / Embed / Rerank / VLM | ASR / TTS / VAD / Vision |
+|---|---|---|
+| `GET /models` 中的下载状态 | `status`：`available` / `downloading` / `downloaded` / `loading` / `loaded` / `error` | `downloaded`：`true` / `false` |
+| 未下载时加载或推理 | 返回 `model_not_downloaded`，需先调下载接口 | 加载时自动下载（ASR/TTS/VAD 首次推理也会触发），这次请求会慢 |
+| 加载请求体 | `{"model": "<id>"}` | `{"model_id": "<id>"}` |
+| 下载记录 | 存 SQLite，gateway 重启后进度和 `checksum` 仍在 | 存内存，重启后已下载的模型只返回 `status: downloaded`，`downloaded_bytes` 为 0，`total_bytes`、`checksum` 为空 |
+| 响应格式 | 直接返回字段 | ASR/TTS/VAD 直接返回；Vision 包在 `{"code", "message", "request_id", "data"}` 的 `data` 里 |
+
+### 1. 下载与进度
+
+```bash
+curl -s -X POST $B/v1/llm/models/qwen3-0.6b-q4_0/download    # 立即返回，后台下载
+curl -s $B/v1/llm/models/qwen3-0.6b-q4_0/download             # 轮询进度，1–2 秒一次即可
+```
+
+```json
+{"model": "qwen3-0.6b-q4_0", "status": "downloaded", "progress": 1.0,
+ "downloaded_bytes": 382156160, "total_bytes": 382156160, "checksum": "verified",
+ "error_code": null, "error_message": null, "retriable": null, "resumable": false}
+```
+
+其他域只换路径：`/v1/{asr,tts,vad,embed,rerank,vlm}/models/<id>/download`、`/v1/vision/models/<id>/download`。按 `status` 判断：
+
+- `downloaded`：完成。LLM 类模型加载后这里会变成 `loading` / `loaded`，同样表示文件已就绪。
+- `downloading`：看 `progress`（0–1）或 `downloaded_bytes` / `total_bytes`。
+- `error`：看 `error_code`。`retriable: true` 时重新 POST 下载即可，`resumable: true` 表示会从断点续传。
+- `available` 且 `resumable: true`：上次下载中断了（如 gateway 重启），重新 POST 即续传。
+- 不由 gateway 下载的模型（ASR `qwen3-asr`、TTS `kokoro`）返回 `download_not_supported`，由对应 SDK 自行下载。
+
+### 2. 加载
+
+```bash
+curl -s -X POST $B/v1/llm/models/load -H 'Content-Type: application/json' -d '{"model":"qwen3-0.6b-q4_0"}'
+# {"model":"qwen3-0.6b-q4_0","status":"loaded"}
+curl -s -X POST $B/v1/tts/models/load -H 'Content-Type: application/json' -d '{"model_id":"matcha_zh_en"}'
+# {"loaded":true,"model_id":"matcha_zh_en","state":"ready"}
+```
+
+- 除 Vision 外都可以不显式加载，第一次推理会自动加载，只是这次请求会慢。Vision 推理前必须调 `POST /v1/vision/models/load`。
+- 判断是否已加载看 `GET /models`：LLM 类看 `status: loaded`，ASR/TTS/VAD 看 `loaded: true`。
+- LLM 类的 `/healthz` 显示的是"当前活跃模型"，由第一次推理或 `POST /models/switch` 设置，`load` 不会改变它，所以不要用它判断是否已加载。
+
+### 3. 推理
+
+```bash
+# TTS：合成 wav
+curl -s -X POST $B/v1/tts/synthesize -H 'Content-Type: application/json' \
+  -d '{"text":"你好，欢迎使用语音合成服务。","model":"matcha_zh_en"}' -o hello.wav
+# ASR：识别音频文件
+curl -s -X POST $B/v1/asr/recognize -F file=@hello.wav -F model=sensevoice
+# VAD
+curl -s -X POST $B/v1/vad/analyze -F file=@hello.wav
+# LLM（OpenAI 兼容；加 "stream": true 为 SSE 流式）
+curl -s -X POST $B/v1/llm/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3-0.6b-q4_0","messages":[{"role":"user","content":"1+1=?"}],"max_tokens":32}'
+# Embed
+curl -s -X POST $B/v1/embed/embeddings -H 'Content-Type: application/json' \
+  -d '{"model":"bge-small-zh-v1.5-q4_k_m","input":"你好"}'
+# Vision（先 load）
+curl -s -X POST $B/v1/vision/inference -F file=@image.jpg -F 'tasks=["detect"]' -F model_id=yolov8n
+```
+
+Rerank 为 `POST /v1/rerank/rerank`，VLM 为 `POST /v1/vlm/chat/completions`（OpenAI 图文消息格式）。流式接口（ASR/TTS/VAD 的 WebSocket、Vision 视频流）见[功能概览](#功能概览)。
+
+### 4. 错误处理
+
+- **同步请求**：HTTP 状态码非 2xx，响应体为 `{"error": <错误码>, "message", "retriable", "details"}`（Vision 另带整数 `code`）。`GET /v1/errors` 里每个错误码都有 `action`（建议处理），上层可以直接按错误码做映射。常见的几种：
+
+  | 错误码 | 上层处理 |
+  |---|---|
+  | `model_not_downloaded` / `model_downloading` | 先下载 / 等下载完成再重试 |
+  | `disk_insufficient` | 清理磁盘，`details` 给出 `required_bytes` / `free_bytes` |
+  | `network_error` | 重新下载，已下载部分会续传 |
+  | `checksum_mismatch` | 重新下载（校验失败的文件已删除，从头下载） |
+  | `load_oom` | 卸载其他模型或换更小的模型 |
+  | `backend_crashed` | 直接重试，gateway 会重新拉起推理进程 |
+
+- **流式请求**：响应头发出后才失败时（如推理进程中途崩溃），HTTP 状态码已是 200，错误在流的最后一帧（格式见[错误码](#错误码)），收到错误帧就按失败处理。
+- **事后查询**：`GET /v1/errors/recent` 返回各模型最近的下载、加载、推理故障，gateway 或设备重启后仍可查询。定期轮询时，把上次结果中最大的 `ts` 作为 `since` 传入，只拿新增记录：
+
+  ```bash
+  curl -s "$B/v1/errors/recent?since=1791367600.12"
+  ```
 
 ## 前端控制台
 
@@ -354,6 +546,7 @@ pytest tests/
 | 核心 | POST | `/models/unload` | 卸载模型 |
 | 核心 | POST | `/models/switch` | 切换默认模型 |
 | 核心 | GET | `/languages` | 支持语种 |
+| 下载 | POST/GET/DELETE | `/models/{id}/download` | 下载 / 查询进度 / 取消（见[模型下载](#模型下载)） |
 | 异步 | POST | `/jobs` | 提交异步转写任务 |
 | 异步 | GET | `/jobs/{id}` | 查询任务状态 |
 | 异步 | DELETE | `/jobs/{id}` | 取消任务 |
@@ -378,6 +571,7 @@ pytest tests/
 | 核心 | POST | `/models/load` | 加载模型 |
 | 核心 | POST | `/models/unload` | 卸载模型 |
 | 核心 | POST | `/models/switch` | 切换默认模型 |
+| 下载 | POST/GET/DELETE | `/models/{id}/download` | 下载 / 查询进度 / 取消（见[模型下载](#模型下载)） |
 | 异步 | POST | `/tasks` | 提交异步合成任务 |
 | 异步 | GET | `/tasks/{id}` | 查询任务状态 |
 | 异步 | DELETE | `/tasks/{id}` | 取消任务 |
@@ -401,6 +595,7 @@ pytest tests/
 | 核心 | POST | `/models/load` | 加载模型 |
 | 核心 | POST | `/models/unload` | 卸载模型 |
 | 核心 | POST | `/models/switch` | 切换默认模型 |
+| 下载 | POST/GET/DELETE | `/models/{id}/download` | 下载 / 查询进度 / 取消（见[模型下载](#模型下载)） |
 | 运维 | GET | `/healthz` | 健康检查 |
 | 运维 | GET/PATCH | `/params` | 推理参数 |
 | 运维 | GET/PATCH | `/audio` | 音频预处理配置 |
@@ -426,6 +621,7 @@ pytest tests/
 | 模型 | POST | `/models/load` | 加载模型（自动下载） |
 | 模型 | POST | `/models/unload` | 卸载模型 |
 | 模型 | POST | `/models/switch` | 切换默认模型 |
+| 下载 | POST/GET/DELETE | `/models/{id}/download` | 下载 / 查询进度 / 取消（见[模型下载](#模型下载)） |
 | 运维 | GET | `/healthz` | 健康检查 |
 | 运维 | GET/PATCH | `/params` | 推理参数 |
 | 运维 | GET/PATCH | `/engine` | 引擎配置 |
@@ -456,7 +652,7 @@ pytest tests/
 | 运维 | GET | `/healthz` | 健康检查 |
 | 运维 | GET | `/metrics` | Prometheus 指标 |
 
-**模型生命周期**：`available` → `downloading` → `downloaded` → `loading` → `loaded`
+**模型生命周期**：`available` → `downloading` → `downloaded` → `loading` → `loaded`；下载失败为 `error`（原因见 `GET /models/{id}/download`），重新下载即可。
 
 ### VLM 视觉语言模型 (`/v1/vlm`)
 
@@ -471,6 +667,7 @@ pytest tests/
 | 模型 | POST | `/v1/vlm/models/load` | 加载 / 激活模型 |
 | 模型 | POST | `/v1/vlm/models/unload` | 卸载模型 |
 | 模型 | POST | `/v1/vlm/models/switch` | 切换活跃模型 |
+| 下载 | POST/GET/DELETE | `/v1/vlm/models/{id}/download` | 下载 / 查询进度 / 取消 |
 | 运维 | GET | `/v1/vlm/healthz` | VLM 健康检查 |
 
 **注册模式说明**：
@@ -522,7 +719,9 @@ pytest tests/
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + Embed + Rerank + Vision） |
+| GET | `/healthz` | 聚合健康检查（ASR + TTS + VAD + LLM + VLM + Vision） |
+| GET | `/v1/errors` | 错误码清单（见[错误码](#错误码)） |
+| GET | `/v1/errors/recent` | 最近的模型故障，可按域 / 模型 / 时间过滤（见[模型故障记录](#模型故障记录)） |
 
 ### 多后端支持
 

@@ -10,11 +10,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-from typing import Awaitable, Callable, Generic, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
 
 from fastapi import Request, WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from .error_log import mark_fault, record_fault
 from .errors import DomainError, RequestTooLargeError
 
 logger = logging.getLogger(__name__)
@@ -41,15 +42,26 @@ def ws_error_boundary(handler: Callable[..., Awaitable[None]]):
             await handler(self, ws, *args, **kwargs)
         except DomainError as e:
             logger.info("WS domain error in %s: %s", handler.__qualname__, e.message)
+            await _record_stream_fault(self, e)
             await _safe_send_error(ws, e.code, e.message, retriable=e.retriable)
             await _safe_close(ws, code=1011)
         except WebSocketDisconnect:
             logger.debug("WS client disconnected in %s", handler.__qualname__)
-        except Exception:
+        except Exception as e:
             logger.exception("unhandled WS error in %s", handler.__qualname__)
+            await _record_stream_fault(self, e)
             await _safe_close(ws, code=1011, reason="internal error")
 
     return wrapped
+
+
+async def _record_stream_fault(handler_self: Any, exc: BaseException) -> None:
+    # ASR/TTS/VAD 同一时间只加载一个模型，流式推理出错时归到服务当前的模型
+    service = getattr(handler_self, "_service", None)
+    domain = getattr(service, "domain", None)
+    if domain:
+        mark_fault(exc, domain, getattr(service, "_default", None))
+    await record_fault(exc)
 
 
 async def _safe_send_error(

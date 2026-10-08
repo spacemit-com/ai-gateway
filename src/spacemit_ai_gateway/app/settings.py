@@ -132,6 +132,22 @@ class LoggingConfig(BaseModel):
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 
+class DownloadConfig(BaseModel):
+    """所有域共用的模型下载策略。"""
+
+    # 校验服务器证书（md5 与模型走同一连接，关掉校验后 md5 防不住中间人替换）
+    tls_verify: bool = True
+    # 下载前要求磁盘在写完模型后仍至少剩余这么多字节
+    reserve_bytes: int = 1024 * 1024 * 1024
+    # 压缩包解压后体积的估算倍数（相对压缩包大小），用于下载前的磁盘预检
+    archive_extract_ratio: float = 1.0
+    # 服务端提供 <url>.md5 时校验；没有 .md5 时只校验大小
+    verify_md5: bool = True
+    connect_timeout_s: float = 30.0
+    read_timeout_s: float = 60.0
+    max_redirects: int = 5
+
+
 # ---- LLM ----
 class PortPoolConfig(BaseModel):
     start: int = 18800
@@ -229,6 +245,7 @@ class Settings(BaseSettings):
     embed: EmbedConfig = Field(default_factory=EmbedConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
     vlm: VlmConfig = Field(default_factory=VlmConfig)
+    download: DownloadConfig = Field(default_factory=DownloadConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     class Config:

@@ -10,11 +10,24 @@ from typing import List, Optional
 import numpy as np
 
 from ....app.settings import VadConfig
-from ....common.errors import VadBackendUnavailable, VadInvalidAudio
+from ....common.downloader import Artifact, ModelAssets
+from ....common.errors import ModelLoadFailed, VadBackendUnavailable, VadInvalidAudio
+from ....common.model_download import expand_path
 from ....common.ready_state import BackendReadyState
 from .base import Segment, VadAnalysis, VadBackend, VadEvent, VadStreamSession
 
 logger = logging.getLogger(__name__)
+
+
+# 与 model_zoo 的 silero preset 一致（vad/src/vad_presets.cpp、silero_backend.cpp）：
+# gateway 先把模型放到这里，SDK 找到文件就不再自己下载
+_SILERO_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/vad/silero/silero_vad.onnx"
+_SILERO_DEFAULT_DIR = "~/.cache/models/vad/silero"
+
+
+def model_assets(config: VadConfig) -> ModelAssets:
+    model_dir = expand_path(config.model_dir or _SILERO_DEFAULT_DIR)
+    return ModelAssets("silero", [Artifact(_SILERO_URL, model_dir / "silero_vad.onnx")])
 
 
 class SileroBackend(VadBackend):
@@ -35,6 +48,8 @@ class SileroBackend(VadBackend):
         try:
             import spacemit_vad
             engine_config = spacemit_vad.VadConfig.preset("silero")
+            if config.model_dir:
+                engine_config.model_dir = str(expand_path(config.model_dir))
             engine_config.sample_rate = config.sample_rate
             engine_config.trigger_threshold = config.trigger_threshold
             engine_config.stop_threshold = config.stop_threshold
@@ -43,9 +58,9 @@ class SileroBackend(VadBackend):
             self._engine = spacemit_vad.VadEngine(engine_config)
             self._state = BackendReadyState.WARMING_UP
         except Exception as e:
-            logger.exception("VAD engine init failed (%s), falling back to mock", e)
-            self._mock = True
-            self._state = BackendReadyState.DEGRADED
+            # SDK 已导入成功，初始化失败要如实报错，不能用 mock 假结果冒充成功
+            logger.exception("VAD engine init failed: %s", e)
+            raise ModelLoadFailed(f"VAD engine init failed: {e}") from e
 
     @property
     def backend_name(self) -> str:

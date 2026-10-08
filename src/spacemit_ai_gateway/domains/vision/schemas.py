@@ -176,6 +176,7 @@ class ModelInfo(BaseModel):
     status: Literal["ready", "loading", "unloaded", "error"] = "unloaded"
     backend: Optional[str] = None
     error_message: Optional[str] = None
+    downloaded: Optional[bool] = None  # None 表示该模型不由 gateway 下载
 
 
 class ModelLoadRequest(BaseModel):

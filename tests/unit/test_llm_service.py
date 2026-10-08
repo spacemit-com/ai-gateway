@@ -75,14 +75,16 @@ def server():
     env = os.environ.copy()
     env["SPACEMIT_AI_GATEWAY_CONFIG"] = tmp_cfg.name
 
+    # 输出写文件而不是 PIPE：PIPE 没人读，日志写满管道缓冲后服务端会卡死
+    server_log = open(Path(tmp_dir.name) / "server.log", "wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn",
          "spacemit_ai_gateway.app.main:app",
          "--host", "0.0.0.0", "--port", str(port)],
         cwd=PROJECT_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=server_log,
+        stderr=subprocess.STDOUT,
     )
 
     base_url = f"http://localhost:{port}"
@@ -101,8 +103,14 @@ def server():
 
     yield {"base_url": base_url, "db_path": db_path}
 
-    proc.kill()
-    proc.wait()
+    # SIGTERM 走 lifespan 关闭流程，顺带停掉 llama-server；直接 kill 会留下孤儿 llama-server
+    proc.terminate()
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    server_log.close()
     Path(db_path).unlink(missing_ok=True)
     Path(tmp_cfg.name).unlink(missing_ok=True)
     tmp_dir.cleanup()

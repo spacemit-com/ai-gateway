@@ -13,8 +13,10 @@ from typing import List, Optional
 import numpy as np
 
 from ....app.settings import TtsConfig
-from ....common.errors import TtsBackendUnavailable, TtsInvalidText
+from ....common.downloader import Artifact, ModelAssets
+from ....common.errors import ModelLoadFailed, TtsBackendUnavailable, TtsInvalidText
 from ....common.model_download import ensure_archive_model, ensure_remote_file, expand_path
+from ....common.sdk import sdk_installed
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo, VoiceInfo
 from .base import (
@@ -113,6 +115,9 @@ class MatchaBackend(TtsBackend):
         try:
             _ensure_model_assets(config.backend, model_dir, config.models)
         except Exception as e:
+            if sdk_installed("spacemit_tts"):
+                # 装了 SDK 的设备上不能用 mock 假结果冒充成功
+                raise ModelLoadFailed(f"TTS model files unavailable: {e}") from e
             logger.exception("TTS model check/download failed (%s), falling back to mock", e)
             self._mock = True
             self._state = BackendReadyState.DEGRADED
@@ -151,6 +156,11 @@ class MatchaBackend(TtsBackend):
                 await self._fallback_to_mock_locked(worker)
                 raise
             except Exception as e:
+                if sdk_installed("spacemit_tts"):
+                    logger.exception("TTS worker start/warmup failed: %s", e)
+                    await self._fallback_to_mock_locked(worker)
+                    self._state = BackendReadyState.FAILED
+                    raise ModelLoadFailed(f"TTS engine start failed: {e}") from e
                 logger.exception(
                     "TTS worker warmup failed (%s), falling back to mock", e
                 )
@@ -263,6 +273,23 @@ class MatchaBackend(TtsBackend):
 
 
 # ---------------------------------------------------------------------------
+
+def model_assets(backend: str, config: TtsConfig) -> ModelAssets:
+    """下载接口用：声码器单文件 + 声学模型压缩包（解压合并到 model_dir）。"""
+    model_dir = expand_path(config.model_dir or _DEFAULT_MODEL_DIR)
+    assets = dict(_MODEL_ASSETS[backend])
+    assets.update(_get_model_asset(config.models, backend))
+    vocoder = assets["vocoder_name"]
+    return ModelAssets(backend, [
+        Artifact(assets["vocoder_url"], model_dir / vocoder),
+        Artifact(
+            assets["url"],
+            model_dir,
+            archive=True,
+            required=tuple(p for p in assets["required_paths"] if p != vocoder),
+        ),
+    ])
+
 
 def _ensure_model_assets(backend: str, model_dir, configured_models: list[dict]) -> None:
     assets = dict(_MODEL_ASSETS[backend])
