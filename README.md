@@ -208,7 +208,7 @@ ASR 的 `qwen3-asr` 不由 gateway 下载（返回 `download_not_supported`）�
 ```yaml
 # configs/base.yaml
 download:
-  tls_verify: false            # archive.spacemit.com 证书续期后改为 true
+  tls_verify: true             # 校验服务器证书
   reserve_bytes: 1073741824    # 下载后磁盘至少保留 1 GiB
   archive_extract_ratio: 1.0   # 解压后体积估算 = 压缩包大小 × 该值
   verify_md5: true

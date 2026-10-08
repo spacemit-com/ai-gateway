@@ -75,7 +75,7 @@ logging:
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 download:
-  tls_verify: false            # archive.spacemit.com 证书 2026-10-05 过期，续期后改为 true
+  tls_verify: true             # 校验服务器证书；设备系统时间错误时会报 tls_error
   reserve_bytes: 1073741824    # 下载前预检：写完模型后磁盘至少还剩 1 GiB
   archive_extract_ratio: 1.0   # 压缩包解压后体积估算 = 压缩包大小 × 该值
   verify_md5: true             # 有 <url>.md5 时做 md5 校验，没有则只校验大小

@@ -281,6 +281,34 @@ async def test_cancel_waiting_model_keeps_other_models_partial(server, tmp_path,
         await svc.shutdown()
 
 
+async def test_unexpected_download_failure_has_one_classification(server, tmp_path, monkeypatch):
+    """下载流程外的异常（如解压前建临时目录时磁盘满）：下载状态与故障记录给出同一个错误码。"""
+    import errno
+
+    from spacemit_ai_gateway.common import base_service, error_log
+
+    log = error_log.ErrorLog()
+    monkeypatch.setattr(error_log, "_store", log)
+    url = server.add("vlm/v.tar.gz", _tar({"model.gguf": b"g" * 100}))
+    svc = _svc(tmp_path, [{"id": "v", "url": url, "local_dir": "v"}])
+    svc.domain = "vlm"
+
+    async def disk_full(*a, **kw):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(base_service, "run_extract", disk_full)
+    await svc.initialize()
+    try:
+        await svc.download("v")
+        await _finish(svc, "v")
+        st = await svc.get_download_progress("v")
+        rec = (await log.query())[0]
+        assert st["error_code"] == rec["code"] == "disk_insufficient"
+        assert st["retriable"] is rec["retriable"] is False
+    finally:
+        await svc.shutdown()
+
+
 async def test_load_errors_carry_codes(server, tmp_path, monkeypatch):
     url = server.add("llm/l.gguf", _payload())
     svc = _svc(tmp_path, [{"id": "l", "url": url}])
@@ -376,7 +404,7 @@ async def test_stream_crash_midway_ends_with_classified_error_frame(server, tmp_
                 assert "Hi" in frames[0]  # 崩溃前的输出照常透传
                 err = json.loads(frames[-1].removeprefix("data: "))["error"]
                 assert err["code"] == "backend_crashed" and err["retriable"] is True, path
-                assert "log_tail" in err["details"]
+                assert "log_tail" in err["details"] and err["details"]["log_path"].endswith("s.log")
 
             r = await c.post("/v1/messages", json=req)
             event, data = r.text.strip().split("\n\n")[-1].split("\n")

@@ -441,11 +441,12 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             await record_fault(mark_fault(e, self.domain, model))
         except Exception as e:
             logger.exception("Download crashed for %s", model)
+            error = _to_download_error(e, url)  # 下载状态与故障记录用同一个分类结果
             await self._update(
-                model, status=ModelStatus.ERROR, error_code="io_error",
-                error_message=str(e), error_retriable=0,
+                model, status=ModelStatus.ERROR, error_code=error.code,
+                error_message=error.message, error_retriable=int(error.retriable),
             )
-            await record_fault(mark_fault(_to_download_error(e, url), self.domain, model))
+            await record_fault(mark_fault(error, self.domain, model))
         finally:
             self._user_cancelled.discard(model)
 
@@ -712,11 +713,13 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             )
         else:
             adapter = self._get_backend_impl().get_adapter(model_id)
+            log_path = process_log_path(self.settings, model_id)
             error = BackendCrashed(
                 f"inference backend for model '{model_id}' {when}: {exc!r}",
                 details={
                     "returncode": adapter_returncode(adapter),
-                    "log_tail": read_log_tail(process_log_path(self.settings, model_id)),
+                    "log_tail": read_log_tail(log_path),
+                    "log_path": str(log_path),
                 },
             )
         if midstream:

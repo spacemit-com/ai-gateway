@@ -135,8 +135,8 @@ class LoggingConfig(BaseModel):
 class DownloadConfig(BaseModel):
     """所有域共用的模型下载策略。"""
 
-    # archive.spacemit.com 证书 2026-10-05 过期，续期前暂时关闭证书校验；续期后改为 true
-    tls_verify: bool = False
+    # 校验服务器证书（md5 与模型走同一连接，关掉校验后 md5 防不住中间人替换）
+    tls_verify: bool = True
     # 下载前要求磁盘在写完模型后仍至少剩余这么多字节
     reserve_bytes: int = 1024 * 1024 * 1024
     # 压缩包解压后体积的估算倍数（相对压缩包大小），用于下载前的磁盘预检
