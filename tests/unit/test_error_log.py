@@ -14,7 +14,7 @@ from spacemit_ai_gateway.gateway import error_codes
 from spacemit_ai_gateway.gateway.errors import setup_exception_handlers
 
 from .test_downloader import _payload
-from .test_model_download_api import (  # noqa: F401  server 是 fixture
+from .test_model_download_api import (
     SENSEVOICE_FILES,
     _asr_service,
     _Backend,
@@ -23,7 +23,6 @@ from .test_model_download_api import (  # noqa: F401  server 是 fixture
     _finish,
     _svc,
     _tar,
-    server,
 )
 
 

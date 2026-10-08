@@ -135,7 +135,8 @@ NOTES = [
     "Vision 接口保留原有整数 code 包装，错误响应额外带字符串字段 error，取值同本清单。",
     "流式请求（stream=true）在响应头发出后失败时 HTTP 状态码已是 200，错误以流内最后一帧给出："
     "OpenAI 兼容接口为 data: {\"error\": {\"code\", \"message\", \"retriable\", ...}}；"
-    "Anthropic /v1/messages 与 /v1/responses 为 event: error；Ollama /api/chat 为 {\"error\", \"code\", \"done\": true}。"
+    "Anthropic /v1/messages 与 /v1/responses 为 event: error；"
+    "Ollama /api/chat 为 {\"error\", \"code\", \"done\": true}。"
     "帧里的 code 取自本清单（本地模型 backend_crashed，remote 模型 upstream_error）。",
 ]
 

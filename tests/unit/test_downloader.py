@@ -8,7 +8,6 @@ import io
 import ssl
 import tarfile
 from collections import namedtuple
-from pathlib import Path
 
 import httpx
 import pytest

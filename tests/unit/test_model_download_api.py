@@ -35,17 +35,7 @@ from spacemit_ai_gateway.common.errors import (
 from spacemit_ai_gateway.common.proxy_response import passthrough_response
 from spacemit_ai_gateway.common.sessions import SessionStore
 
-from .test_downloader import BASE, FakeServer, _payload
-
-
-@pytest.fixture
-def server(monkeypatch):
-    srv = FakeServer()
-    monkeypatch.setattr(
-        downloader, "make_client",
-        lambda config: httpx.AsyncClient(transport=httpx.MockTransport(srv.handler)),
-    )
-    return srv
+from .test_downloader import BASE, _payload
 
 
 def _tar(files: dict[str, bytes]) -> bytes:

@@ -15,7 +15,7 @@ from ...common.errors import (
     ModelUnknown,
 )
 from ...common.downloader import DownloadTracker, ModelAssets
-from ...common.error_log import mark_fault, record_fault
+from ...common.error_log import mark_fault
 from ...common.ready_state import BackendReadyState
 from ...common.sdk import sdk_installed
 from ...common.schemas import ModelInfo

@@ -1,10 +1,8 @@
-import json
 import time
 import uuid
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
 
 from .schemas import DeregisterRequest, LoadRequest, RegisterRequest, SwitchRequest, UnloadRequest
 from .service import RerankService
