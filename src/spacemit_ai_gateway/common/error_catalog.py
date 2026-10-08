@@ -103,8 +103,9 @@ CATALOG: list[dict] = [
      "when": "推理引擎执行推理时出错（目前用于 Vision 原生推理异常）",
      "action": "重试；反复出现查看 GET /v1/errors/recent 的 details 与 gateway 日志"},
     {"code": "upstream_error", "phase": "inference", "http_status": 502, "retriable": True,
-     "when": "remote 类型模型的远程 API 连不上或流式响应中途断开",
-     "action": "检查网络与远程 API 地址后重试"},
+     "when": "remote 类型模型的远程 API 连不上或流式响应中途断开；"
+             "或推理后端（远程 API / 本地 llama-server）返回了无法解析的非 JSON 错误响应",
+     "action": "remote 模型检查网络与远程 API 地址后重试；本地模型查看 details 与推理进程日志"},
     {"code": "asr_backend_unavailable", "phase": "inference", "http_status": 503, "retriable": True,
      "when": "ASR 后端未就绪", "action": "稍后重试"},
     {"code": "tts_backend_unavailable", "phase": "inference", "http_status": 503, "retriable": True,

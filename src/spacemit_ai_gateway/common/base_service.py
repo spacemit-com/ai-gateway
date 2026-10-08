@@ -465,6 +465,8 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         row = await self._sync_file_status(row)
         if row["status"] in (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING):
             raise ModelAlreadyDownloaded(f"Model '{model}' is already downloaded")
+        # 取消请求恰好落在上一次下载结束之后时，标记可能没被清掉；不能让它把这次的中断当成用户取消
+        self._user_cancelled.discard(model)
         task = asyncio.create_task(self._download(model, url, dest))
         self._download_tasks[model] = task
         task.add_done_callback(lambda _: self._download_tasks.pop(model, None))

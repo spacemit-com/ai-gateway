@@ -263,7 +263,7 @@ curl -s 'localhost:18790/v1/errors/recent?domain=llm&model=qwen3-0.6b-q4_0&limit
 ```
 
 - 只记模型故障：`phase` 为 `download` / `load` / `inference` 的错误（`code` 含义见 `GET /v1/errors`）。调用方参数错误、未知模型、模型未下载 / 正在下载 / 未加载、用户取消下载不记。
-- 覆盖：八个域的下载失败（手动下载和加载时自动下载）、加载失败、推理失败，包括流式中途的错误帧和 ASR/TTS/VAD 的 WebSocket 流。Vision 记录 `/v1/vision/models/load`、`/v1/vision/inference` 和视频流 WebSocket；离线 jobs / sequence / feature 接口不记。
+- 覆盖：八个域的下载失败（手动下载和加载时自动下载）、加载失败，以及 gateway 检测到的推理故障：推理进程崩溃或连不上（`backend_crashed`）、remote 模型的远程 API 连不上或中途断开（`upstream_error`），包括流式中途的错误帧和 ASR/TTS/VAD 的 WebSocket 流。推理引擎自己返回的错误响应（如上下文超长、参数错误）原样返回给调用方，不记录。Vision 记录 `/v1/vision/models/load`、`/v1/vision/inference` 和视频流 WebSocket；离线 jobs / sequence / feature 接口不记。
 - 同一次故障只记一条。加载时自动下载失败记为下载故障，不再另记一条加载故障。
 - 存储：`~/.cache/spacemit-ai-gateway/errors.sqlite`，只保留最近 2000 条，gateway 或开发板重启后仍可查询。数据库不可写时退回内存记录，不影响业务请求。
 

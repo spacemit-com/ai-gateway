@@ -251,6 +251,29 @@ async def test_user_cancel_discards_but_shutdown_keeps_partial(server, tmp_path,
     assert part_path(dest).exists()
 
 
+async def test_stale_cancel_flag_does_not_drop_next_partial(server, tmp_path, monkeypatch):
+    """取消请求落在上一次下载刚结束时会留下标记；下一次下载被进程退出打断时仍应保留断点。"""
+    url = server.add("llm/r.gguf", _payload())
+    gate = asyncio.Event()
+    original = downloader._write_chunk
+
+    def slow(fh, hasher, chunk):
+        original(fh, hasher, chunk)
+        gate.set()
+        import time
+        time.sleep(0.05)
+
+    monkeypatch.setattr(downloader, "_write_chunk", slow)
+    monkeypatch.setattr(downloader, "_CHUNK_SIZE", 1024)
+    svc = _svc(tmp_path, [{"id": "r", "url": url}])
+    await svc.initialize()
+    svc._user_cancelled.add("r")  # 上一次留下的标记
+    await svc.download("r")
+    await asyncio.wait_for(gate.wait(), 5)
+    await svc.shutdown()
+    assert part_path(tmp_path / "models" / "r.gguf").exists()
+
+
 async def test_cancel_waiting_model_keeps_other_models_partial(server, tmp_path, monkeypatch):
     # 两个模型指向同一个文件：取消等锁的 b，不能删掉 a 正在写的 .part
     url = server.add("llm/shared.gguf", _payload())
