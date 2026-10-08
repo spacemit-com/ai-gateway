@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from ...app.settings import AsrConfig
+from ...app.settings import AsrConfig, DownloadConfig
 from ...common.audio_codec import normalize_audio_for_inference
 from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
@@ -29,12 +29,16 @@ from ...common.errors import (
     ModelNotLoaded,
     ModelUnknown,
 )
+from ...common.downloader import DownloadTracker, ModelAssets
+from ...common.error_log import mark_fault, record_fault
 from ...common.lexicon_store import LexiconStore
 from ...common.ready_state import BackendReadyState
 from ...common.schemas import ModelInfo
 from ...common.sessions import SessionStore
 from ...common.task_store import TaskStatus, TaskStore
+from ...common.sdk import sdk_installed
 from .adapters import ASR_REGISTRY, AsrBackend, AsrStreamSession, RecognitionResult
+from .adapters.sensevoice import model_assets as _sensevoice_assets
 from .schemas import (
     AsrAudioPatch,
     AsrAudioResponse,
@@ -79,6 +83,8 @@ _ASR_MODEL_INFO = {
 
 
 class AsrService:
+    domain = "asr"  # 用于模型故障记录
+
     def __init__(
         self,
         backends: Dict[str, AsrBackend],
@@ -87,6 +93,7 @@ class AsrService:
         config: Optional[AsrConfig] = None,
         job_store: Optional[TaskStore] = None,
         lexicon_store: Optional[LexiconStore] = None,
+        download_config: Optional[DownloadConfig] = None,
     ):
         self._backends = backends
         self._default = default
@@ -112,6 +119,15 @@ class AsrService:
         }
         self._engine_pending_restart = False
         self._load_lock = asyncio.Lock()
+        self.downloads = DownloadTracker(
+            "asr", self._model_assets, lambda: list(self._allowed_backends), download_config
+        )
+
+    def _model_assets(self, model_id: str) -> Optional[ModelAssets]:
+        # qwen3-asr 调外部 llama-server，不由 gateway 下载
+        if model_id != "sensevoice":
+            return None
+        return _sensevoice_assets(self._config.model_copy(update={"backend": model_id}))
 
     @property
     def backend(self) -> AsrBackend:
@@ -155,6 +171,13 @@ class AsrService:
         force_reload: bool = False,
     ) -> AsrBackend:
         name = self._model_id(model)
+        try:
+            return await self._load_backend_locked(name, force_reload=force_reload)
+        except Exception as exc:
+            mark_fault(exc, self.domain, name)  # 下载 / 加载失败归到这个模型
+            raise
+
+    async def _load_backend_locked(self, name: str, *, force_reload: bool = False) -> AsrBackend:
         existing = self._backends.get(name)
         if (
             existing is not None
@@ -176,12 +199,22 @@ class AsrService:
                 details={"available": self._allowed_backends},
             )
 
+        # 先下载（失败直接报下载错误码），再卸载旧模型，避免下载失败后什么都没加载
+        if self.downloads.supports(name) and sdk_installed("spacemit_asr"):
+            await self.downloads.ensure(name)
         await self._shutdown_loaded_backends()
         cfg_updates = {"backend": name}
         cfg = self._config.model_copy(update=cfg_updates)
         logger.info("loading ASR backend '%s' on demand", name)
         backend = cls(cfg)
-        await backend.warmup()
+        try:
+            await backend.warmup()
+        except Exception:
+            try:
+                await backend.shutdown()
+            except Exception:
+                logger.warning("failed to shut down ASR backend '%s' after warmup failure", name)
+            raise
         self._backends[name] = backend
         self._default = name
         await self._sync_hotwords_to_backends()
@@ -231,8 +264,9 @@ class AsrService:
                 hotwords=hotwords,
                 enable_emotion=enable_emotion,
             )
-        except Exception:
+        except Exception as exc:
             self._stats["total_errors"] += 1
+            mark_fault(exc, self.domain, self._model_id(params.model))
             raise
         self._stats["total_requests"] += 1
         self._stats["total_processing_ms"] += result.processing_ms
@@ -320,7 +354,11 @@ class AsrService:
                 sample_rate=info.get("sample_rate"),
                 loaded=False,
             ))
-        return models
+        return [
+            m.model_copy(update={"downloaded": self.downloads.is_ready(m.id)})
+            if self.downloads.supports(m.id) else m
+            for m in models
+        ]
 
     def get_languages(self) -> LanguagesResponse:
         all_langs: set[str] = set()
@@ -473,6 +511,7 @@ class AsrService:
         return {"switched": True, "default_model_id": model_id}
 
     async def shutdown(self) -> None:
+        await self.downloads.shutdown()
         await self._shutdown_loaded_backends()
 
     # ---- jobs ----
@@ -519,13 +558,17 @@ class AsrService:
                 data.get("enable_emotion"), data.get("model")
             )
             backend = await self._ensure_backend(data.get("model"))
-            result = await backend.recognize(
-                audio=normalized.pcm,
-                sample_rate=normalized.sample_rate,
-                language=data.get("language", "auto"),
-                punctuation=True,
-                enable_emotion=enable_emotion,
-            )
+            try:
+                result = await backend.recognize(
+                    audio=normalized.pcm,
+                    sample_rate=normalized.sample_rate,
+                    language=data.get("language", "auto"),
+                    punctuation=True,
+                    enable_emotion=enable_emotion,
+                )
+            except Exception as exc:
+                mark_fault(exc, self.domain, self._model_id(data.get("model")))
+                raise
             response = _result_to_response(result)
             await self._job_store.update(
                 job_id,
@@ -539,6 +582,7 @@ class AsrService:
         except Exception as e:
             logger.exception("ASR job %s failed", job_id)
             self._stats["total_errors"] += 1
+            await record_fault(e)  # 只记已标记的模型故障，音频下载失败等不记
             await self._job_store.update(
                 job_id, status=TaskStatus.FAILED, error=str(e)
             )

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from .schemas import DeregisterRequest, LoadRequest, RegisterRequest, SwitchRequest, UnloadRequest
 from .service import RerankService
+from ...common.proxy_response import passthrough_response
 from ...gateway.auth import verify_api_key
 
 router = APIRouter()
@@ -140,11 +141,7 @@ async def _proxy(path: str, request: Request):
     await response.aclose()
     await client.aclose()
 
-    return JSONResponse(
-        content=json.loads(content),
-        status_code=response.status_code,
-        headers={"X-Request-ID": request_id},
-    )
+    return passthrough_response(content, response, request_id)
 
 
 @router.post("/rerank")

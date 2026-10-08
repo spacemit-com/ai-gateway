@@ -10,9 +10,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .adapters.native import NativeAdapter, ServiceError
+from ...app.settings import DownloadConfig
+from ...common.downloader import DownloadTracker
+from ...common.error_log import mark_fault, record_fault
+from ...common.errors import DomainError
 from ...gateway.auth import verify_api_key
 from .features import compute_similarity, infer_embedding
-from .models import ModelRegistry
+from .models import ModelRegistry, _get_all_known_models, vision_model_assets
 from .schemas import (
     ApiResponse,
     EngineConfig,
@@ -38,6 +42,7 @@ _registry: Optional[ModelRegistry] = None
 _vision_service: Optional[VisionService] = None
 _stream_mgr: Optional[StreamSessionManager] = None
 _job_mgr: Optional[JobManager] = None
+_downloads: Optional[DownloadTracker] = None
 
 # 运行时可变参数
 _params = VisionParams()
@@ -45,14 +50,42 @@ _engine = EngineConfig()
 _stats = StatsData()
 
 
-def setup() -> None:
+def setup(download_config: Optional[DownloadConfig] = None) -> None:
     """在 lifespan 中调用，初始化 Vision 全局实例。"""
-    global _adapter, _registry, _vision_service, _stream_mgr, _job_mgr
+    global _adapter, _registry, _vision_service, _stream_mgr, _job_mgr, _downloads
+    _downloads = _new_download_tracker(download_config)
     _adapter = NativeAdapter()
     _registry = ModelRegistry(_adapter)
     _vision_service = VisionService(_adapter, _registry)
     _stream_mgr = StreamSessionManager(_adapter, _registry)
     _job_mgr = JobManager(_adapter, _registry)
+
+
+def _new_download_tracker(config: Optional[DownloadConfig] = None) -> DownloadTracker:
+    return DownloadTracker(
+        "vision", vision_model_assets, lambda: sorted(_get_all_known_models()), config
+    )
+
+
+def _download_tracker() -> DownloadTracker:
+    global _downloads
+    if _downloads is None:
+        _downloads = _new_download_tracker()
+    return _downloads
+
+
+def _as_service_error(exc: DomainError) -> ServiceError:
+    """Vision 保留整数 code 包装，额外带字符串 error 码。"""
+    if exc.code == "model_unknown":
+        int_code = ErrorCode.MODEL_NOT_FOUND
+    elif exc.status_code == 400:
+        int_code = ErrorCode.INVALID_ARGUMENT
+    else:
+        int_code = ErrorCode.MODEL_RUNTIME_ERROR
+    return ServiceError(
+        exc.status_code, int_code, exc.message,
+        error=exc.code, retriable=exc.retriable, details=exc.details,
+    )
 
 
 def shutdown() -> None:
@@ -168,7 +201,10 @@ async def request_id_middleware(request: Request, call_next):
 @app.exception_handler(ServiceError)
 async def service_error_handler(request: Request, exc: ServiceError):
     payload = ApiResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
-    return JSONResponse(status_code=exc.http_status, content=payload.model_dump(mode="json"))
+    content = payload.model_dump(mode="json")
+    if getattr(exc, "error", None):
+        content["error"] = exc.error
+    return JSONResponse(status_code=exc.http_status, content=content)
 
 
 @app.exception_handler(RequestValidationError)
@@ -465,6 +501,7 @@ async def stream_ws(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except ServiceError as exc:
+        await record_fault(exc)  # 帧推理失败已标记为模型故障，其余不记
         try:
             await ws.send_json({"event": "error", "code": exc.code, "message": exc.message})
             await ws.close()
@@ -532,21 +569,69 @@ async def list_models(
     backend: Optional[str] = Query(default=None),
 ):
     data = _registry.list_models(tags=tags, backend=backend)
+    tracker = _download_tracker()
+    for item in data.data:
+        if tracker.supports(item.model_id):
+            item.downloaded = tracker.is_ready(item.model_id)
     return _ok(request, data=data.model_dump(mode="json"))
+
+
+@app.post("/v1/vision/models/{model_id}/download", tags=["models"])
+async def start_model_download(request: Request, model_id: str, _: None = Depends(verify_api_key)):
+    try:
+        data = await _download_tracker().start(model_id)
+    except DomainError as exc:
+        raise _as_service_error(exc) from exc
+    return _ok(request, data=data)
+
+
+@app.get("/v1/vision/models/{model_id}/download", tags=["models"])
+async def model_download_progress(request: Request, model_id: str):
+    try:
+        data = _download_tracker().status(model_id)
+    except DomainError as exc:
+        raise _as_service_error(exc) from exc
+    return _ok(request, data=data)
+
+
+@app.delete("/v1/vision/models/{model_id}/download", tags=["models"])
+async def cancel_model_download(request: Request, model_id: str, _: None = Depends(verify_api_key)):
+    try:
+        data = await _download_tracker().cancel(model_id)
+    except DomainError as exc:
+        raise _as_service_error(exc) from exc
+    return _ok(request, data=data)
 
 
 @app.post("/v1/vision/models/load", tags=["models"])
 async def load_model(request: Request, body: ModelLoadRequest):
+    # 已登记下载地址的模型先异步下载（不阻塞事件循环），失败返回下载错误码
+    if not body.config_path and not body.model_path_override:
+        try:
+            await _download_tracker().ensure(body.model_id)
+        except DomainError as exc:
+            raise _as_service_error(exc) from exc
     with _registry._lock:
         for mid in list(_registry._models.keys()):
             if mid != body.model_id:
                 _stream_mgr.cancel_sessions_for_model(mid)
-    data = _registry.load_model(
-        model_id=body.model_id,
-        config_path=body.config_path,
-        model_path_override=body.model_path_override or "",
-        lazy_load=body.lazy_load,
-    )
+    try:
+        data = _registry.load_model(
+            model_id=body.model_id,
+            config_path=body.config_path,
+            model_path_override=body.model_path_override or "",
+            lazy_load=body.lazy_load,
+        )
+    except ServiceError as exc:
+        if exc.http_status >= 500:  # 模型文件拉取 / 创建实例出错，参数错误（4xx）不算模型故障
+            exc.error = exc.error or "load_failed"
+            exc.retriable = True
+            mark_fault(exc, "vision", body.model_id)
+        raise
+    if not data.loaded:  # 原生 create 失败时接口仍返回 200 + loaded=false，这里补记一条加载故障
+        reason = (data.engine_state or {}).get("error_message") or "model load failed"
+        await record_fault(mark_fault(
+            DomainError(reason, code="load_failed", retriable=True), "vision", body.model_id))
     return _ok(request, data=data.model_dump(mode="json"))
 
 

@@ -15,7 +15,9 @@ from typing import List, Optional
 import numpy as np
 
 from ....app.settings import TtsConfig
-from ....common.errors import TtsBackendUnavailable, TtsInvalidText
+from ....common.downloader import Artifact, ModelAssets
+from ....common.errors import ModelLoadFailed, TtsBackendUnavailable, TtsInvalidText
+from ....common.model_download import expand_path
 from ....common.ready_state import BackendReadyState
 from ....common.schemas import ModelInfo, VoiceInfo
 from .base import (
@@ -30,6 +32,59 @@ logger = logging.getLogger(__name__)
 logger_bridge = logging.getLogger(f"{__name__}._Bridge")
 
 _BACKEND_ID = "kokoro"
+
+# 与 model_zoo 的 Kokoro preset / 下载器保持一致：gateway 先把文件放到 SDK 会检查的目录，
+# SDK 发现文件齐全就不再自己下载（tts/src/tts_presets.cpp、
+# tts/src/backends/kokoro/kokoro_model_downloader.cpp::validateRequiredFiles）
+_KOKORO_BASE_URL = "https://archive.spacemit.com/spacemit-ai/model_zoo/tts/kokoro"
+_KOKORO_DEFAULT_DIR = "~/.cache/models/tts/kokoro-tts"
+_KOKORO_DEFAULT_MODEL = "kokoro-v1.0-en"
+_KOKORO_REQUIRED = {
+    "kokoro-v1.0-en": (
+        "kokoro-v1.0-en/kokoro-v1.0-en.q.onnx",
+        "kokoro-v1.0-en/voices/af_heart.bin",
+        "kokoro-v1.0-en/us_gold.json",
+        "kokoro-v1.0-en/us_silver.json",
+    ),
+    "kokoro-v1.1-zh": (
+        "kokoro-v1.1-zh/kokoro-v1.1-zh.q.onnx",
+        "kokoro-v1.1-zh/tokenizer.json",
+        "kokoro-v1.1-zh/config.json",
+        "kokoro-v1.1-zh/voices/zf_001.npy",
+        "kokoro-v1.1-zh/us_gold.json",
+        "kokoro-v1.1-zh/us_silver.json",
+    ),
+}
+
+
+def _preset_location() -> tuple[str, str]:
+    """优先读已安装 SDK 的 preset（model_dir, model），读不到用与 SDK 一致的默认值。"""
+    try:
+        import spacemit_tts
+
+        cfg = spacemit_tts.Config.preset(_BACKEND_ID)
+        native = getattr(cfg, "_config", cfg)
+        model_dir = getattr(cfg, "model_dir", None) or getattr(native, "model_dir", None)
+        model = getattr(cfg, "model", None) or getattr(native, "model", None)
+        return model_dir or _KOKORO_DEFAULT_DIR, model or _KOKORO_DEFAULT_MODEL
+    except Exception:
+        return _KOKORO_DEFAULT_DIR, _KOKORO_DEFAULT_MODEL
+
+
+def model_assets(config: TtsConfig) -> Optional[ModelAssets]:
+    model_dir, model = _preset_location()
+    required = _KOKORO_REQUIRED.get(model)
+    if required is None:
+        # 旧版 SDK（如 spacemit-tts 1.0.4 的 kokoro-v1.0.q）从 HuggingFace 下载，布局不同，交给 SDK 自己下载
+        return None
+    return ModelAssets(_BACKEND_ID, [Artifact(
+        f"{_KOKORO_BASE_URL}/{model}.tar.gz",
+        expand_path(model_dir),
+        archive=True,
+        required=required,
+    )])
+
+
 _DEFAULT_SAMPLE_RATE = 24000
 
 # Kokoro 声库初版：先列中英常用三条，待首次实际跑通后按真实 voice manifest 补齐
@@ -68,9 +123,9 @@ class KokoroBackend(TtsBackend):
             self._engine_sample_rate = int(engine_config.sample_rate)
             self._state = BackendReadyState.WARMING_UP
         except Exception as e:
-            logger.exception("Kokoro engine init failed (%s), falling back to mock", e)
-            self._mock = True
-            self._state = BackendReadyState.DEGRADED
+            # SDK 已导入成功，初始化失败要如实报错，不能用 mock 假结果冒充成功
+            logger.exception("Kokoro engine init failed: %s", e)
+            raise ModelLoadFailed(f"Kokoro engine init failed: {e}") from e
             self._engine_sample_rate = config.sample_rate or _DEFAULT_SAMPLE_RATE
 
     @property

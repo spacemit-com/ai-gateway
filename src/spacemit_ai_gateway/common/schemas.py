@@ -29,6 +29,7 @@ class ModelInfo(BaseModel):
     languages: List[str] = Field(default_factory=list)
     sample_rate: Optional[int] = None
     loaded: bool = False
+    downloaded: Optional[bool] = None  # None 表示该模型不由 gateway 下载
 
 
 class VoiceInfo(BaseModel):

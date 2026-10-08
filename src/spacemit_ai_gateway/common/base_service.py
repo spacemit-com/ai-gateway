@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-import tarfile
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -9,7 +9,25 @@ from typing import Any, Generic, TypeVar
 import aiosqlite
 import httpx
 
+from ..app.settings import DownloadConfig
+from .downloader import DownloadError, _to_download_error, fetch_file, partial_size, run_extract
+from .error_log import mark_fault, record_fault
 from .enums import ModelStatus
+from .errors import (
+    BackendCrashed,
+    DomainError,
+    DownloadInProgress,
+    DownloadNotSupported,
+    ModelAlreadyDownloaded,
+    ModelDownloading,
+    ModelLoadFailed,
+    ModelNotDownloaded,
+    ModelNotFound,
+    NoActiveDownload,
+    NoModelLoaded,
+)
+from .llama_process import adapter_returncode, process_log_path, read_log_tail
+from .proxy_response import classify_stream_errors
 from .ready_state import BackendReadyState
 
 logger = logging.getLogger(__name__)
@@ -28,6 +46,27 @@ CREATE TABLE IF NOT EXISTS models (
 )
 """
 
+# 下载状态与失败原因（旧库启动时自动补列）
+_DOWNLOAD_COLUMNS = (
+    ("error_code", "TEXT"),
+    ("error_message", "TEXT"),
+    ("error_retriable", "INTEGER"),
+    ("downloaded_bytes", "INTEGER DEFAULT 0"),
+    ("total_bytes", "INTEGER"),
+    ("checksum", "TEXT"),
+    ("updated_at", "REAL"),
+)
+
+
+def _local_model_ready(path: Path) -> bool:
+    """文件非空，或目录（VLM 解压目录）里有 gguf。"""
+    try:
+        if path.is_dir():
+            return any(path.rglob("*.gguf"))
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
 TBackend = TypeVar("TBackend")
 TConfig = TypeVar("TConfig")
 
@@ -35,19 +74,24 @@ TConfig = TypeVar("TConfig")
 class BaseModelService(ABC, Generic[TBackend, TConfig]):
     """LLM/Embed/Rerank 三域的通用基类，封装模型生命周期管理逻辑。"""
 
+    domain: str = ""  # 子类填 llm / embed / rerank / vlm，用于故障记录
+
     def __init__(
         self,
         backends: dict[str, TBackend],
         default: str,
         config: TConfig,
+        download_config: DownloadConfig | None = None,
     ):
         self._backends = backends
         self._default = default
         self.settings = config
+        self._download_config = download_config or DownloadConfig()
         self._db: aiosqlite.Connection | None = None
         self._current_model: str | None = None
         self._current_source_type: str | None = None
         self._download_tasks: dict[str, asyncio.Task] = {}
+        self._user_cancelled: set[str] = set()
         self._loading_events: dict[str, asyncio.Event] = {}
 
     @property
@@ -83,15 +127,23 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         self._db = await aiosqlite.connect(db_file)
         self._db.row_factory = aiosqlite.Row
         await self._db.execute(CREATE_TABLE_SQL)
+        await self._migrate()
         await self._db.commit()
         await self._reset_stale_status()
         await self._sync_preset_models()
 
+    async def _migrate(self) -> None:
+        async with self._db.execute("PRAGMA table_info(models)") as cur:
+            existing = {row["name"] for row in await cur.fetchall()}
+        for name, ddl in _DOWNLOAD_COLUMNS:
+            if name not in existing:
+                await self._db.execute(f"ALTER TABLE models ADD COLUMN {name} {ddl}")
+
     async def _reset_stale_status(self) -> None:
-        """重启后清理 loading/loaded 状态（旧进程已死）。"""
+        """重启后清理 loading/loaded/downloading 状态（旧进程和下载任务已不存在）。"""
         async with self._db.execute(
-            "SELECT id, local_path FROM models WHERE status IN (?, ?) AND source_type != 'remote'",
-            (ModelStatus.LOADING, ModelStatus.LOADED),
+            "SELECT id, local_path, status FROM models WHERE status IN (?, ?, ?) AND source_type != 'remote'",
+            (ModelStatus.LOADING, ModelStatus.LOADED, ModelStatus.DOWNLOADING),
         ) as cur:
             rows = await cur.fetchall()
 
@@ -99,7 +151,14 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         available = 0
         for row in rows:
             local_path = row["local_path"]
-            if local_path and Path(local_path).exists():
+            if row["status"] == ModelStatus.DOWNLOADING:
+                # 下载被进程退出打断：保留 .gwpart 与已下载字节数，下次下载时续传
+                await self._db.execute(
+                    "UPDATE models SET status=? WHERE id=?", (ModelStatus.AVAILABLE, row["id"])
+                )
+                available += 1
+                continue
+            if local_path and _local_model_ready(Path(local_path)):
                 await self._db.execute(
                     "UPDATE models SET status=? WHERE id=?",
                     (ModelStatus.DOWNLOADED, row["id"]),
@@ -129,6 +188,15 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                     await adapter.warmup()
 
     async def shutdown(self) -> None:
+        # 先停下载（保留 .gwpart 供下次续传），再关数据库
+        tasks = list(self._download_tasks.values())
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         backend_impl = self._get_backend_impl()
         await backend_impl.shutdown()
         if self._db:
@@ -175,7 +243,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                 filename = url.split("/")[-1] if url else f"{m['id']}.gguf"
                 expected_path = self.settings.storage.models_path / filename
             if row is None:
-                if expected_path.exists():
+                if _local_model_ready(expected_path):
                     await self._db.execute(
                         "INSERT INTO models (id, source_type, url, local_path, status, is_preset, download_progress)"
                         " VALUES (?,?,?,?,?,1,1.0)",
@@ -190,7 +258,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                 await self._db.commit()
             else:
                 if row["local_path"] != str(expected_path):
-                    if expected_path.exists():
+                    if _local_model_ready(expected_path):
                         await self._db.execute(
                             "UPDATE models SET local_path=?, status=?, download_progress=1.0 WHERE id=?",
                             (str(expected_path), ModelStatus.DOWNLOADED, m["id"]),
@@ -261,131 +329,151 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if commit:
             await self._db.commit()
 
+    async def _update(self, model: str, **fields: Any) -> None:
+        fields["updated_at"] = time.time()
+        columns = ", ".join(f"{name}=?" for name in fields)
+        await self._db.execute(
+            f"UPDATE models SET {columns} WHERE id=?", (*fields.values(), model)
+        )
+        await self._db.commit()
+
+    def _preset_local_dir(self, model: str) -> str | None:
+        for m in self.settings.preset_models:
+            if m["id"] == model:
+                return m.get("local_dir")
+        return None
+
+    def _download_dest(self, row: dict) -> Path | None:
+        url = row.get("url") or ""
+        return self.settings.storage.models_path / url.split("/")[-1] if url else None
+
+    def _expected_local_path(self, row: dict) -> str | None:
+        local_dir = self._preset_local_dir(row["id"])
+        if local_dir:
+            return str(self.settings.storage.models_path / local_dir)
+        dest = self._download_dest(row)
+        return str(dest) if dest else None
+
     async def _sync_file_status(self, row: dict) -> dict:
-        """根据文件是否存在修正 DB 状态，返回修正后的 row。非本地模型直接返回原 row。"""
+        """根据文件是否就绪修正 DB 状态，返回修正后的 row。非本地模型直接返回原 row。
+
+        - 下载失败（error）在文件不存在时保持 error，直到重新下载
+        - 没有对应下载任务的 downloading（进程重启、任务已结束）不再显示为下载中
+        """
         if row["source_type"] == "remote":
             return row
         model = row["id"]
-        local_path = row.get("local_path")
-        if not local_path:
-            local_dir = None
-            for m in self.settings.preset_models:
-                if m["id"] == model:
-                    local_dir = m.get("local_dir")
-                    break
-            if local_dir:
-                local_path = str(self.settings.storage.models_path / local_dir)
-            else:
-                url = row.get("url", "")
-                if url:
-                    local_path = str(self.settings.storage.models_path / url.split("/")[-1])
-        file_exists = bool(local_path and Path(local_path).exists())
+        local_path = row.get("local_path") or self._expected_local_path(row)
+        ready = bool(local_path) and _local_model_ready(Path(local_path))
         status = row["status"]
+        if status == ModelStatus.DOWNLOADING and model not in self._download_tasks:
+            status = ModelStatus.DOWNLOADED if ready else ModelStatus.AVAILABLE
+            await self._update(model, status=status)
+            row = {**row, "status": status}
         active_statuses = (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING, ModelStatus.DOWNLOADING)
-        if file_exists and status not in active_statuses:
-            await self._db.execute(
-                "UPDATE models SET status=?, local_path=?, download_progress=1.0 WHERE id=?",
-                (ModelStatus.DOWNLOADED, local_path, model),
+        if ready and status not in active_statuses:
+            await self._update(
+                model, status=ModelStatus.DOWNLOADED, local_path=local_path,
+                download_progress=1.0, error_code=None, error_message=None,
             )
-            await self._db.commit()
-            return {**row, "status": ModelStatus.DOWNLOADED, "local_path": local_path}
-        if file_exists and not row.get("local_path"):
-            await self._db.execute(
-                "UPDATE models SET local_path=? WHERE id=?",
-                (local_path, model),
-            )
-            await self._db.commit()
+            return {
+                **row, "status": ModelStatus.DOWNLOADED, "local_path": local_path,
+                "download_progress": 1.0, "error_code": None, "error_message": None,
+            }
+        if ready and not row.get("local_path"):
+            await self._update(model, local_path=local_path)
             return {**row, "local_path": local_path}
-        if not file_exists and status not in (ModelStatus.AVAILABLE, ModelStatus.DOWNLOADING):
+        if not ready and status not in (ModelStatus.AVAILABLE, ModelStatus.DOWNLOADING, ModelStatus.ERROR):
             await self._reset_missing_local_file(model)
-            return {**row, "status": ModelStatus.AVAILABLE, "local_path": None}
+            return {**row, "status": ModelStatus.AVAILABLE, "local_path": None, "download_progress": 0}
         return row
 
     async def _download(self, model: str, url: str, dest: Path) -> None:
-        await self._set_status(model, ModelStatus.DOWNLOADING, 0.0)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = dest.with_suffix(dest.suffix + ".tmp")
+        local_dir = self._preset_local_dir(model)
+        is_archive = bool(local_dir) and str(dest).endswith((".tar.gz", ".tgz"))
+        # 旧版本下载留下的临时文件
+        dest.with_suffix(dest.suffix + ".tmp").unlink(missing_ok=True)
+        await self._update(
+            model, status=ModelStatus.DOWNLOADING, download_progress=0.0,
+            downloaded_bytes=partial_size(dest), error_code=None, error_message=None,
+            error_retriable=None, checksum=None,
+        )
 
-        if temp_path.exists():
-            temp_path.unlink()
+        async def report(done: int, total: int | None) -> None:
+            await self._update(
+                model, downloaded_bytes=done, total_bytes=total,
+                download_progress=round(done / total, 4) if total else 0.0,
+            )
 
         try:
-            async with httpx.AsyncClient(timeout=None, follow_redirects=True, verify=False) as client:
-                async with client.stream("GET", url) as resp:
-                    resp.raise_for_status()
-                    total = int(resp.headers.get("content-length", 0))
-                    downloaded = 0
-                    with open(temp_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total:
-                                progress = downloaded / total
-                                await self._set_status(model, ModelStatus.DOWNLOADING, progress)
-            temp_path.rename(dest)
-            # Extract tar.gz archives for VLM directory-based models
-            local_dir = None
-            for m in self.settings.preset_models:
-                if m["id"] == model:
-                    local_dir = m.get("local_dir")
-                    break
-            final_path = dest
-            if local_dir and str(dest).endswith((".tar.gz", ".tgz")):
-                extract_dir = self.settings.storage.models_path / local_dir
-                if not extract_dir.exists():
-                    extract_dir.mkdir(parents=True, exist_ok=True)
-                    with tarfile.open(dest, "r:gz") as archive:
-                        # Defensive check: reject path traversal in archive members
-                        resolved_root = extract_dir.resolve()
-                        for member in archive.getmembers():
-                            member_path = (resolved_root / member.name).resolve()
-                            if not member_path.is_relative_to(resolved_root):
-                                raise ValueError(
-                                    f"Tar member '{member.name}' escapes target dir"
-                                )
-                        archive.extractall(extract_dir)
-                    logger.info("Extracted %s to %s", dest, extract_dir)
-                final_path = extract_dir
-            await self._db.execute(
-                "UPDATE models SET status=?, local_path=?, download_progress=1.0 WHERE id=?",
-                (ModelStatus.DOWNLOADED, str(final_path), model),
+            ratio = self._download_config.archive_extract_ratio if is_archive else 0.0
+            result = await fetch_file(
+                url, dest, config=self._download_config, on_progress=report, extract_ratio=ratio,
+                discard_on_cancel=lambda: model in self._user_cancelled,
             )
-            await self._db.commit()
-            logger.info("Download complete: %s -> %s", model, final_path)
+            final_path = dest
+            if is_archive:
+                # 解压到临时目录后整体替换，失败不会留下半个目录；成功后删除压缩包
+                extract_dir = self.settings.storage.models_path / local_dir
+                await run_extract(dest, extract_dir, replace=True)
+                dest.unlink(missing_ok=True)
+                logger.info("Extracted %s to %s", dest.name, extract_dir)
+                final_path = extract_dir
+            await self._update(
+                model, status=ModelStatus.DOWNLOADED, local_path=str(final_path),
+                download_progress=1.0, downloaded_bytes=result.size, total_bytes=result.size,
+                checksum=result.checksum,
+            )
+            logger.info("Download complete: %s -> %s (checksum %s)", model, final_path, result.checksum)
         except asyncio.CancelledError:
-            temp_path.unlink(missing_ok=True)
-            await self._set_status(model, ModelStatus.AVAILABLE, 0.0)
-            logger.info("Download cancelled for %s", model)
+            by_user = model in self._user_cancelled
+            await self._update(
+                model, status=ModelStatus.AVAILABLE,
+                download_progress=0.0, downloaded_bytes=0 if by_user else partial_size(dest),
+            )
+            logger.info("Download %s for %s", "cancelled" if by_user else "interrupted", model)
+        except DownloadError as e:
+            await self._update(
+                model, status=ModelStatus.ERROR, error_code=e.code,
+                error_message=e.message, error_retriable=int(e.retriable),
+            )
+            logger.error("Download failed for %s: [%s] %s", model, e.code, e.message)
+            await record_fault(mark_fault(e, self.domain, model))
         except Exception as e:
-            temp_path.unlink(missing_ok=True)
-            logger.error("Download failed for %s: %s", model, e)
-            await self._set_status(model, ModelStatus.ERROR)
-            raise
+            logger.exception("Download crashed for %s", model)
+            await self._update(
+                model, status=ModelStatus.ERROR, error_code="io_error",
+                error_message=str(e), error_retriable=0,
+            )
+            await record_fault(mark_fault(_to_download_error(e, url), self.domain, model))
+        finally:
+            self._user_cancelled.discard(model)
 
     async def download(self, model: str) -> None:
         row = await self._get_model(model)
         if not row:
-            raise ValueError(f"Model '{model}' not found")
+            raise ModelNotFound(f"Model '{model}' not found")
         if row["source_type"] != "local_url":
-            raise ValueError(f"Model '{model}' is not a local_url model")
+            raise DownloadNotSupported(f"Model '{model}' is not a local_url model")
         if model in self._download_tasks:
-            raise ValueError(f"Model '{model}' is already downloading")
+            raise DownloadInProgress(f"Model '{model}' is already downloading")
         url = row.get("url")
         if not url:
-            raise ValueError(f"Model '{model}' has no URL")
-        filename = url.split("/")[-1]
-        dest = self.settings.storage.models_path / filename
+            raise DownloadNotSupported(f"Model '{model}' has no URL")
+        dest = self._download_dest(row)
         row = await self._sync_file_status(row)
-        if row["status"] == ModelStatus.DOWNLOADED:
-            raise ValueError(f"Model '{model}' is already downloaded")
+        if row["status"] in (ModelStatus.DOWNLOADED, ModelStatus.LOADED, ModelStatus.LOADING):
+            raise ModelAlreadyDownloaded(f"Model '{model}' is already downloaded")
         task = asyncio.create_task(self._download(model, url, dest))
         self._download_tasks[model] = task
         task.add_done_callback(lambda _: self._download_tasks.pop(model, None))
 
     async def cancel_download(self, model: str) -> None:
+        """用户取消：删除已下载部分。（进程退出等中断则保留，下次续传）"""
         task = self._download_tasks.get(model)
         if not task:
-            raise ValueError(f"No active download for '{model}'")
+            raise NoActiveDownload(f"No active download for '{model}'")
+        self._user_cancelled.add(model)
         task.cancel()
         try:
             await task
@@ -393,13 +481,18 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             pass
 
     async def _do_load(self, model: str, extra_args: list[str] | None = None) -> None:
-        """
-        核心加载逻辑，被 load() 和 switch() 复用。
-        幂等操作：若模型已运行则直接返回。
-        """
+        """核心加载逻辑，被 load()、switch() 和推理时的自动加载复用；失败时标记为该模型的加载故障。"""
+        try:
+            await self._do_load_impl(model, extra_args)
+        except Exception as exc:
+            mark_fault(exc, self.domain, model)
+            raise
+
+    async def _do_load_impl(self, model: str, extra_args: list[str] | None = None) -> None:
+        """幂等操作：若模型已运行则直接返回。"""
         row = await self._get_model(model)
         if not row:
-            raise ValueError(f"Model '{model}' not found")
+            raise ModelNotFound(f"Model '{model}' not found")
 
         row = await self._sync_file_status(row)
         source_type = row["source_type"]
@@ -419,17 +512,21 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             row = await self._get_model(model)
             if row and row["status"] == ModelStatus.LOADED:
                 return
-            raise RuntimeError(f"Model '{model}' failed to load")
+            raise ModelLoadFailed(f"Model '{model}' failed to load", retriable=True)
 
+        await self._reap_crashed(model)
         if backend_impl.is_model_running(model):
             await self._set_status(model, ModelStatus.LOADED)
             return
 
         if source_type != "remote":
-            if not local_path:
-                raise ValueError(f"Model '{model}' file not found. Please download it again.")
+            # 下载中 local_path 还没写入，必须先判断下载状态
             if model in self._download_tasks:
-                raise ValueError(f"Model '{model}' is still downloading")
+                raise ModelDownloading(f"Model '{model}' is still downloading")
+            if not local_path:
+                raise ModelNotDownloaded(
+                    f"Model '{model}' has no local file path (file not found). Please download it again."
+                )
 
         event = asyncio.Event()
         self._loading_events[model] = event
@@ -446,7 +543,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
                 await backend_impl.stop_model(model)
             except Exception:
                 logger.warning("Failed to stop model '%s' after load failure", model, exc_info=True)
-            if local_path and Path(local_path).exists():
+            if local_path and _local_model_ready(Path(local_path)):
                 await self._set_status(model, ModelStatus.DOWNLOADED, 1.0)
             else:
                 await self._reset_missing_local_file(model)
@@ -454,6 +551,19 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         finally:
             event.set()
             self._loading_events.pop(model, None)
+
+    async def _reap_crashed(self, model: str) -> None:
+        """推理进程已退出但 adapter 还在：记下退出码和日志，释放端口，交给后续重新拉起。"""
+        backend_impl = self._get_backend_impl()
+        adapter = backend_impl.get_adapter(model)
+        if adapter is None or adapter.is_running():
+            return
+        tail = read_log_tail(process_log_path(self.settings, model))
+        logger.warning(
+            "llama-server for '%s' exited unexpectedly (returncode=%s); restarting. last log lines:\n%s",
+            model, adapter_returncode(adapter), "\n".join(tail),
+        )
+        await backend_impl.stop_model(model)
 
     async def load(self, model: str, extra_args: list[str] | None = None) -> None:
         """
@@ -479,7 +589,7 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
             return
 
         local_path = row.get("local_path")
-        if local_path and Path(local_path).exists():
+        if local_path and _local_model_ready(Path(local_path)):
             await self._set_status(model, ModelStatus.DOWNLOADED)
             return
 
@@ -515,12 +625,27 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
     async def get_download_progress(self, model: str) -> dict:
         row = await self._get_model(model)
         if not row:
-            raise ValueError(f"Model '{model}' not found")
+            raise ModelNotFound(f"Model '{model}' not found", status_code=404)
         row = await self._sync_file_status(row)
+        return self._download_view(row)
+
+    def _download_view(self, row: dict) -> dict:
+        status = row["status"]
+        failed = status == ModelStatus.ERROR
+        dest = self._download_dest(row) if row["source_type"] == "local_url" else None
+        idle = status in (ModelStatus.AVAILABLE, ModelStatus.ERROR)
+        retriable = row.get("error_retriable")
         return {
-            "model": model,
-            "status": row["status"],
-            "progress": row.get("download_progress", 0.0),
+            "model": row["id"],
+            "status": status,
+            "progress": row.get("download_progress") or 0.0,
+            "downloaded_bytes": row.get("downloaded_bytes") or 0,
+            "total_bytes": row.get("total_bytes"),
+            "checksum": row.get("checksum") if status != ModelStatus.ERROR else None,
+            "error_code": row.get("error_code") if failed else None,
+            "error_message": row.get("error_message") if failed else None,
+            "retriable": bool(retriable) if failed and retriable is not None else None,
+            "resumable": bool(idle and dest is not None and partial_size(dest) > 0),
         }
 
     async def _resolve_model(self, request_body: bytes) -> tuple[str, str]:
@@ -540,15 +665,19 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
         if not model_id:
             model_id = self._current_model or self.settings.default_model
             if not model_id:
-                raise RuntimeError("No model loaded")
+                raise NoModelLoaded("No model loaded")
 
         row = await self._get_model(model_id)
         if not row:
-            raise RuntimeError(f"Model '{model_id}' not found")
+            raise ModelNotFound(f"Model '{model_id}' not found", status_code=503)
 
         # 统一走 _do_load，确保模型真的在运行（幂等操作）
         logger.info("Ensuring model '%s' is ready for inference request", model_id)
-        await self._do_load(model_id)
+        try:
+            await self._do_load(model_id)
+        except (ModelNotDownloaded, ModelDownloading) as exc:
+            exc.status_code = 503  # 推理请求：服务暂不可用，而不是请求本身有误
+            raise
         if self._current_model is None or not requested_model:
             self._current_model = model_id
             self._current_source_type = row["source_type"]
@@ -558,7 +687,38 @@ class BaseModelService(ABC, Generic[TBackend, TConfig]):
     async def proxy(self, path: str, request_body: bytes, headers: dict, stream: bool = False):
         model_id, source_type = await self._resolve_model(request_body)
         backend_impl = self._get_backend_impl()
-        return await backend_impl.proxy_for(
-            model_id, source_type,
-            path, request_body, headers, stream,
-        )
+        try:
+            client, response = await backend_impl.proxy_for(
+                model_id, source_type,
+                path, request_body, headers, stream,
+            )
+        except httpx.TransportError as exc:
+            raise self._transport_error(model_id, source_type, exc) from exc
+        if stream:
+            # 流式响应的正文在调用方读取，读到一半断开也要给出分类错误
+            classify_stream_errors(
+                response, lambda exc: self._transport_error(model_id, source_type, exc, midstream=True)
+            )
+        return client, response
+
+    def _transport_error(
+        self, model_id: str, source_type: str, exc: httpx.TransportError, *, midstream: bool = False
+    ) -> DomainError:
+        when = "connection lost mid-response" if midstream else "unreachable"
+        if source_type == "remote":
+            error: DomainError = DomainError(
+                f"remote API for model '{model_id}' {when}: {exc!r}",
+                code="upstream_error", status_code=502, retriable=True,
+            )
+        else:
+            adapter = self._get_backend_impl().get_adapter(model_id)
+            error = BackendCrashed(
+                f"inference backend for model '{model_id}' {when}: {exc!r}",
+                details={
+                    "returncode": adapter_returncode(adapter),
+                    "log_tail": read_log_tail(process_log_path(self.settings, model_id)),
+                },
+            )
+        if midstream:
+            logger.error("[%s] %s", error.code, error.message)
+        return mark_fault(error, self.domain, model_id)

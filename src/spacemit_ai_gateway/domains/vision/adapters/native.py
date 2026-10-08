@@ -16,10 +16,23 @@ from ..schemas import ErrorCode, TimingInfo
 
 
 class ServiceError(Exception):
-    def __init__(self, http_status: int, code: ErrorCode, message: str):
+    def __init__(
+        self,
+        http_status: int,
+        code: ErrorCode,
+        message: str,
+        *,
+        error: Optional[str] = None,
+        retriable: bool = False,
+        details: Any = None,
+    ):
         self.http_status = http_status
         self.code = int(code)
         self.message = message
+        # 字符串错误码（同 common/error_catalog），整数 code 保持原有含义
+        self.error = error
+        self.retriable = retriable
+        self.details = details
         super().__init__(message)
 
 

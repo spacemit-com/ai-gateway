@@ -6,6 +6,9 @@ from typing import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from ...common.error_log import record_fault
+from ...common.errors import DomainError
+from ...common.proxy_response import stream_error_frame
 from ...gateway.auth import verify_api_key
 from .schemas import DeregisterRequest, LoadRequest, RegisterRequest, SwitchRequest, UnloadRequest
 from .service import VlmService
@@ -139,6 +142,9 @@ async def _proxy(path: str, request: Request, stream: bool):
             try:
                 async for chunk in response.aiter_bytes():
                     yield chunk
+            except DomainError as exc:  # 推理进程中途崩溃等：流内补一帧错误
+                await record_fault(exc)
+                yield stream_error_frame(exc, "openai")
             finally:
                 await response.aclose()
                 await client.aclose()

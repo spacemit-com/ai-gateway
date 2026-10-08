@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from ..common.error_log import record_fault
 from ..common.errors import DomainError
 
 try:
@@ -21,20 +22,24 @@ logger = logging.getLogger(__name__)
 
 
 def setup_exception_handlers(app: FastAPI) -> None:
+    # 已标记域和模型的下载/加载/推理故障在这里统一记录，供 GET /v1/errors/recent 查询
     @app.exception_handler(DomainError)
     async def _(request: Request, exc: DomainError):
+        await record_fault(exc)
         return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
     if VisionServiceError is not None:
         @app.exception_handler(VisionServiceError)
         async def _(request: Request, exc: VisionServiceError):
+            await record_fault(exc)
             return JSONResponse(
                 status_code=exc.http_status,
                 content={
                     "code": exc.code,
                     "message": exc.message,
-                    "error": "vision_error",
-                    "retriable": False,
+                    "error": getattr(exc, "error", None) or "vision_error",
+                    "retriable": getattr(exc, "retriable", False),
+                    "details": getattr(exc, "details", None),
                 },
             )
 
@@ -64,6 +69,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _(request: Request, exc: Exception):
         logger.exception("unhandled HTTP exception: %s", exc)
+        await record_fault(exc)
         return JSONResponse(
             status_code=500,
             content={

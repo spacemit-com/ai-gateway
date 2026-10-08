@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class RerankService(BaseModelService[RerankBackend, RerankConfig]):
     """Rerank 服务，继承自 BaseModelService。"""
+    domain = "rerank"
 
     @property
     def adapter(self):

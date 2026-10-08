@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 
 from ....common.port_pool import port_pool
+from ....common.llama_process import spawn_logged
 from ....common.args_utils import merge_and_dedup_args
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,12 @@ class LlamaRerankAdapter:
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
-    def start(self, model_path: Path, extra_args: list[str] | None = None) -> None:
+    def start(
+        self,
+        model_path: Path,
+        extra_args: list[str] | None = None,
+        log_path: Path | None = None,
+    ) -> None:
         if self._process and self._process.poll() is None:
             logger.warning("llama-server --reranking already running, stopping first")
             self.stop()
@@ -50,11 +56,8 @@ class LlamaRerankAdapter:
         cmd.extend(filtered_args)
 
         logger.info("Starting llama-server --reranking: %s", " ".join(cmd))
-        self._process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # stdout/stderr 写入 log_path，启动失败时据此分类（见 common/llama_process.py）
+        self._process = spawn_logged(cmd, log_path)
 
     def stop(self) -> None:
         if self._process and self._process.poll() is None:

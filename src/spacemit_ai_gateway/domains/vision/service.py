@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List, Optional
 
+from ...common.error_log import mark_fault
 from .adapters.native import NativeAdapter, ServiceError
 from .models import ModelRegistry
 from .schemas import (
@@ -142,7 +143,7 @@ class VisionService:
                 managed.backend_instance, img_bgr, conf=conf, iou=iou,
             )
             if not ok:
-                raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, "inference failed")
+                raise _inference_failed(resolved_id, "inference failed")
 
             results = InferenceResults()
             raw_items = self._extract_raw_items(raw_results)
@@ -168,7 +169,7 @@ class VisionService:
         except ServiceError:
             raise
         except Exception as exc:
-            raise ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, f"native inference error: {exc}") from exc
+            raise _inference_failed(resolved_id, f"native inference error: {exc}") from exc
 
     def _infer_mock(self, resolved_id: str, tasks: List[str], image_bytes: bytes) -> InferenceResponse:
         digest_int = int(hashlib.sha256(image_bytes).hexdigest()[:8], 16)
@@ -415,3 +416,10 @@ class VisionService:
             label_name = labels[label_idx]
 
         return label_idx, label_name
+
+
+def _inference_failed(model_id: str, message: str) -> ServiceError:
+    """原生推理失败：带 inference_failed 错误码，并记为该模型的推理故障。"""
+    exc = ServiceError(500, ErrorCode.MODEL_RUNTIME_ERROR, message, error="inference_failed", retriable=True)
+    mark_fault(exc, "vision", model_id)
+    return exc

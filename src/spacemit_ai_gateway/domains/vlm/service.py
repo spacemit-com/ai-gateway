@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class VlmService(BaseModelService[VlmBackend, VlmConfig]):
     """VLM service using the shared model lifecycle and proxy path."""
+    domain = "vlm"
 
     @property
     def adapter(self):

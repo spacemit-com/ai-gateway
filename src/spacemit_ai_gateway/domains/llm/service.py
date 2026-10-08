@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class LLMService(BaseModelService[LlmBackend, LlmConfig]):
     """LLM 服务，继承自 BaseModelService。"""
+    domain = "llm"
 
     @property
     def adapter(self):

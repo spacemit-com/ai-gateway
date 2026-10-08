@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ...app.settings import TtsConfig
+from ...app.settings import DownloadConfig, TtsConfig
 from ...common.audio_codec import encode_audio
 from ...common.backend_selection import resolve_allowed_backends
 from ...common.errors import (
@@ -20,12 +20,17 @@ from ...common.errors import (
     ModelUnknown,
     TaskNotFound,
 )
+from ...common.downloader import DownloadTracker, ModelAssets
+from ...common.error_log import mark_fault, record_fault
 from ...common.lexicon_store import LexiconStore
 from ...common.ready_state import BackendReadyState
 from ...common.schemas import ModelInfo, VoiceInfo
 from ...common.sessions import SessionStore
 from ...common.task_store import TaskStatus, TaskStore
+from ...common.sdk import sdk_installed
 from .adapters import TTS_REGISTRY, TtsBackend, TtsStreamSession
+from .adapters import kokoro as _kokoro
+from .adapters import matcha as _matcha
 from .schemas import (
     HealthResponse,
     StreamSessionRequest,
@@ -68,12 +73,15 @@ _STATIC_SAMPLE_RATES = {
 
 
 class TtsService:
+    domain = "tts"  # 用于模型故障记录
+
     def __init__(
         self,
         backends: Dict[str, TtsBackend],
         default: str,
         session_store: SessionStore,
         config: Optional[TtsConfig] = None,
+        download_config: Optional[DownloadConfig] = None,
     ):
         self._backends = backends
         self._default = default
@@ -91,6 +99,9 @@ class TtsService:
         self._lexicon_store: LexiconStore = LexiconStore(namespace="tts")
         self._task_files: dict[str, Path] = {}
         self._event_store = None
+        self.downloads = DownloadTracker(
+            "tts", self._model_assets, lambda: list(self._allowed_backends), download_config
+        )
         self._stats = {
             "total_requests": 0,
             "total_errors": 0,
@@ -120,6 +131,13 @@ class TtsService:
 
     async def _ensure_backend_locked(self, model: Optional[str] = None) -> TtsBackend:
         name = self._model_id(model)
+        try:
+            return await self._load_backend_locked(name)
+        except Exception as exc:
+            mark_fault(exc, self.domain, name)  # 下载 / 加载失败归到这个模型
+            raise
+
+    async def _load_backend_locked(self, name: str) -> TtsBackend:
         existing = self._backends.get(name)
         if existing is not None and existing.state.is_serving:
             return existing
@@ -137,11 +155,21 @@ class TtsService:
                 details={"available": self._allowed_backends},
             )
 
+        # 先下载（失败直接报下载错误码），再卸载旧模型，避免下载失败后什么都没加载
+        if self.downloads.supports(name) and sdk_installed("spacemit_tts"):
+            await self.downloads.ensure(name)
         await self._shutdown_loaded_backends_locked()
         cfg = self._tts_config.model_copy(update={"backend": name})
         logger.info("loading TTS backend '%s' on demand", name)
         backend = cls(cfg)
-        await backend.warmup()
+        try:
+            await backend.warmup()
+        except Exception:
+            try:
+                await backend.shutdown()
+            except Exception:
+                logger.warning("failed to shut down TTS backend '%s' after warmup failure", name)
+            raise
         self._backends[name] = backend
         self._default = name
         await self._sync_lexicon_to_backends_locked()
@@ -175,8 +203,9 @@ class TtsService:
                 pitch=req.pitch,
                 volume=req.volume,
             )
-        except Exception:
+        except Exception as exc:
             self._stats["total_errors"] += 1
+            mark_fault(exc, self.domain, self._model_id(req.model))
             raise
         self._stats["total_requests"] += 1
         self._stats["total_processing_ms"] += result.processing_ms
@@ -265,7 +294,19 @@ class TtsService:
                 sample_rate=_STATIC_SAMPLE_RATES.get(model_id),
                 loaded=False,
             ))
-        return models
+        return [
+            m.model_copy(update={"downloaded": self.downloads.is_ready(m.id)})
+            if self.downloads.supports(m.id) else m
+            for m in models
+        ]
+
+    def _model_assets(self, model_id: str) -> Optional[ModelAssets]:
+        cfg = self._tts_config.model_copy(update={"backend": model_id})
+        if model_id in _matcha._MODEL_ASSETS:
+            return _matcha.model_assets(model_id, cfg)
+        if model_id == "kokoro":
+            return _kokoro.model_assets(cfg)
+        return None
 
     async def healthz(self) -> dict:
         default_backend = self._backends.get(self._default)
@@ -372,6 +413,7 @@ class TtsService:
         return {"switched": True, "default_model_id": model_id}
 
     async def shutdown(self) -> None:
+        await self.downloads.shutdown()
         await self._shutdown_loaded_backends()
 
     # ---- tasks ----
@@ -392,13 +434,17 @@ class TtsService:
 
             async with self._load_lock:
                 backend = await self._ensure_backend_locked(data.get("model"))
-            result = await backend.synthesize(
-                text=data["text"],
-                voice_id=data.get("voice_id"),
-                speed=float(data.get("speed", 1.0)),
-                pitch=1.0,
-                volume=1.0,
-            )
+            try:
+                result = await backend.synthesize(
+                    text=data["text"],
+                    voice_id=data.get("voice_id"),
+                    speed=float(data.get("speed", 1.0)),
+                    pitch=1.0,
+                    volume=1.0,
+                )
+            except Exception as exc:
+                mark_fault(exc, self.domain, self._model_id(data.get("model")))
+                raise
             await self._task_store.update(task_id, progress=80.0)
 
             fmt = (data.get("response_format") or "wav").lower()
@@ -424,6 +470,7 @@ class TtsService:
         except Exception as e:
             logger.exception("TTS task %s failed", task_id)
             self._stats["total_errors"] += 1
+            await record_fault(e)  # 只记已标记的模型故障
             await self._task_store.update(
                 task_id, status=TaskStatus.FAILED, error=str(e)
             )

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class EmbedService(BaseModelService[EmbedBackend, EmbedConfig]):
     """Embed 服务，继承自 BaseModelService。"""
+    domain = "embed"
 
     @property
     def adapter(self):
